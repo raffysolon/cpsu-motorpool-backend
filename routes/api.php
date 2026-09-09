@@ -7,6 +7,7 @@ use App\Http\Controllers\DriverController;
 use App\Http\Controllers\VehicleController;
 use App\Http\Controllers\CoordinatorAssignmentController;
 use App\Http\Controllers\MyAssignmentController;
+use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\TripController;
 
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
@@ -34,10 +35,25 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/my-assignment', [MyAssignmentController::class, 'show']);
 
+    Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::put('/notifications/{notification}/read', [NotificationController::class, 'markAsRead']);
+    Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
+    Route::put('/change-password', [AuthController::class, 'changePassword']);
+
     Route::get('/trips', [TripController::class, 'index']);
     Route::get('/my-trips', [TripController::class, 'myTrips']);
+    Route::get('/trips/preview-pdf', [TripController::class, 'previewPdf']);
     Route::post('/trips', [TripController::class, 'store']);
+    Route::post('/trips/admin-create', [TripController::class, 'adminStore']);
+    Route::get('/available-drivers', [TripController::class, 'availableDrivers']);
+    Route::get('/available-vehicles', [TripController::class, 'availableVehicles']);
     Route::get('/trips/{trip}', [TripController::class, 'show']);
+    Route::put('/trips/{trip}', [TripController::class, 'update']);
+    Route::post('/trips/{trip}/start', [TripController::class, 'start']);
+    Route::post('/trips/{trip}/end', [TripController::class, 'end']);
+    Route::post('/trips/{trip}/start-return', [TripController::class, 'startReturn']);
+    Route::post('/trips/{trip}/end-return', [TripController::class, 'endReturn']);
     Route::put('/trips/{trip}/approve', [TripController::class, 'approve']);
     Route::put('/trips/{trip}/deny', [TripController::class, 'deny']);
+    Route::get('/trips/{trip}/print', [TripController::class, 'print']);
 });
