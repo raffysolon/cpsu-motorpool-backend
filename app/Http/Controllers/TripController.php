@@ -6,7 +6,6 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use App\Models\Notification;
 use App\Models\Trip;
-use App\Models\TripMovement;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\CoordinatorAssignment;
