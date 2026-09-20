@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
-set -e
-
-storage_public_path=/var/www/html/storage/app/public
-pdf_path="$storage_public_path/pdfs"
-
-mkdir -p "$pdf_path"
-chown -R nginx:nginx "$storage_public_path"
-chmod -R ug+rwX "$storage_public_path"
-php artisan storage:link --force
+mkdir -p /var/www/html/storage/app/public/pdfs
+chown -R nginx:nginx /var/www/html/storage/app/public || true
+chmod -R ug+rwX /var/www/html/storage/app/public || true
+ln -sfn /var/www/html/storage/app/public /var/www/html/public/storage
