@@ -576,7 +576,8 @@ class TripController extends Controller
 
         $this->ensureMovements($trip);
         $trip->load(['driver', 'vehicle', 'passengers', 'movements']);
-        set_time_limit(120);
+        ini_set('memory_limit', '256M');
+        set_time_limit(180);
         $pdf = Pdf::loadView('trip_ticket', ['trip' => $trip])
             ->setOptions(['isRemoteEnabled' => false, 'isFontSubsettingEnabled' => false]);
         $filename = 'trip_ticket_' . $trip->id . '.pdf';
@@ -627,7 +628,8 @@ class TripController extends Controller
             new \App\Models\TripPassenger(['name' => 'Jane Smith']),
         ]));
 
-        set_time_limit(120);
+        ini_set('memory_limit', '256M');
+        set_time_limit(180);
         $pdf = Pdf::loadView('trip_ticket', ['trip' => $trip])
             ->setOptions(['isRemoteEnabled' => false, 'isFontSubsettingEnabled' => false]);
         $filename = 'trip_ticket_preview.pdf';
