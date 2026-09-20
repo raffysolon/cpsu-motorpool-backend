@@ -576,7 +576,9 @@ class TripController extends Controller
 
         $this->ensureMovements($trip);
         $trip->load(['driver', 'vehicle', 'passengers', 'movements']);
-        $pdf = Pdf::loadView('trip_ticket', ['trip' => $trip]);
+        set_time_limit(120);
+        $pdf = Pdf::loadView('trip_ticket', ['trip' => $trip])
+            ->setOptions(['isRemoteEnabled' => false, 'isFontSubsettingEnabled' => false]);
         $filename = 'trip_ticket_' . $trip->id . '.pdf';
         $path = storage_path('app/public/pdfs/' . $filename);
         File::ensureDirectoryExists(dirname($path));
@@ -625,7 +627,9 @@ class TripController extends Controller
             new \App\Models\TripPassenger(['name' => 'Jane Smith']),
         ]));
 
-        $pdf = Pdf::loadView('trip_ticket', ['trip' => $trip]);
+        set_time_limit(120);
+        $pdf = Pdf::loadView('trip_ticket', ['trip' => $trip])
+            ->setOptions(['isRemoteEnabled' => false, 'isFontSubsettingEnabled' => false]);
         $filename = 'trip_ticket_preview.pdf';
         $path = storage_path('app/public/pdfs/' . $filename);
         File::ensureDirectoryExists(dirname($path));
