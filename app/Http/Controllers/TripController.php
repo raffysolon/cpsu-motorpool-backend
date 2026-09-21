@@ -204,6 +204,7 @@ class TripController extends Controller
             'scheduled_departure' => $validated['scheduled_departure'],
             'return_scheduled_departure' => $validated['return_scheduled_departure'] ?? null,
             'status' => 'pending',
+            'source' => 'driver',
         ]);
 
         $this->createViceVersaMovements($trip, $validated['return_scheduled_departure'] ?? null);
@@ -276,6 +277,7 @@ class TripController extends Controller
             'scheduled_departure' => $scheduledDepartureForStorage,
             'return_scheduled_departure' => $validated['return_scheduled_departure'] ?? null,
             'status' => 'approved',
+            'source' => 'admin',
         ]);
 
         $this->createViceVersaMovements($trip, $validated['return_scheduled_departure'] ?? null);

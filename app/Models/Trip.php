@@ -15,6 +15,7 @@ class Trip extends Model
         'scheduled_departure',
         'return_scheduled_departure',
         'status',
+        'source',
         'total_distance',
     ];
 
