@@ -48,9 +48,12 @@ return [
     | considered expired. This will override any values set in the token's
     | "expires_at" attribute, but first-party sessions are not affected.
     |
+    | Default: null (never expires) - NOT RECOMMENDED for production
+    | Recommended: 1440 (24 hours) for good security/convenience balance
+    |
     */
 
-    'expiration' => null,
+    'expiration' => 1440, // 24 hours (recommended for production)
 
     /*
     |--------------------------------------------------------------------------
