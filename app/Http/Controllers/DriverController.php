@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\User;
 use App\Rules\StrongPassword;
+use App\Helpers\InputSanitizer;
 use Illuminate\Support\Facades\Hash;
 
 class DriverController extends Controller
@@ -26,10 +27,10 @@ class DriverController extends Controller
         ]);
 
         $driver = User::create([
-            'name' => $validated['name'],
-            'email' => $validated['email'],
-            'contact_number' => $validated['contact_number'] ?? null,
-            'license_number' => $validated['license_number'] ?? null,
+            'name' => InputSanitizer::clean($validated['name']),
+            'email' => InputSanitizer::cleanEmail($validated['email']),
+            'contact_number' => InputSanitizer::clean($validated['contact_number'] ?? null),
+            'license_number' => InputSanitizer::clean($validated['license_number'] ?? null),
             'password' => Hash::make($validated['password']),
             'role' => 'driver',
         ]);
@@ -50,10 +51,10 @@ class DriverController extends Controller
             'password' => ['nullable', 'string', 'min:8', new StrongPassword()],
         ]);
 
-        $driver->name = $validated['name'];
-        $driver->email = $validated['email'];
-        $driver->contact_number = $validated['contact_number'] ?? null;
-        $driver->license_number = $validated['license_number'] ?? null;
+        $driver->name = InputSanitizer::clean($validated['name']);
+        $driver->email = InputSanitizer::cleanEmail($validated['email']);
+        $driver->contact_number = InputSanitizer::clean($validated['contact_number'] ?? null);
+        $driver->license_number = InputSanitizer::clean($validated['license_number'] ?? null);
 
         if (!empty($validated['password'])) {
             $driver->password = Hash::make($validated['password']);

@@ -9,6 +9,7 @@ use App\Models\Trip;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\CoordinatorAssignment;
+use App\Helpers\InputSanitizer;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\File;
 
@@ -187,7 +188,28 @@ class TripController extends Controller
             'passengers.*.designation' => 'nullable|string',
         ]);
 
+        // Sanitize user inputs
+        $validated = InputSanitizer::cleanFields($validated, ['origin', 'destination', 'purpose']);
+
         $driver = $request->user();
+
+        // Check if driver has active or approved trips
+        $existingTrip = Trip::where('driver_id', $driver->id)
+            ->whereIn('status', ['active', 'approved'])
+            ->first();
+
+        if ($existingTrip) {
+            $statusText = $existingTrip->status === 'active' ? 'ongoing' : 'approved';
+            return response()->json([
+                'message' => "You cannot create a new trip request. You have an {$statusText} trip that must be completed first.",
+                'existing_trip' => [
+                    'id' => $existingTrip->id,
+                    'destination' => $existingTrip->destination,
+                    'status' => $existingTrip->status,
+                    'scheduled_departure' => $existingTrip->scheduled_departure,
+                ]
+            ], 422);
+        }
 
         $assignment = CoordinatorAssignment::with('vehicle')
             ->where('driver_id', $driver->id)
@@ -212,8 +234,8 @@ class TripController extends Controller
         if (!empty($validated['passengers'])) {
             foreach ($validated['passengers'] as $passenger) {
                 $trip->passengers()->create([
-                    'name' => $passenger['name'],
-                    'designation' => $passenger['designation'] ?? null,
+                    'name' => InputSanitizer::clean($passenger['name']),
+                    'designation' => InputSanitizer::clean($passenger['designation'] ?? null),
                 ]);
             }
         }
@@ -251,9 +273,10 @@ class TripController extends Controller
             'passengers.*.designation' => 'nullable|string',
         ]);
 
-        $origin = trim((string) ($validated['origin'] ?? '')) ?: 'TBD';
-        $destination = trim((string) ($validated['destination'] ?? '')) ?: 'TBD';
-        $purpose = trim((string) ($validated['purpose'] ?? '')) ?: 'Not specified';
+        // Sanitize user inputs
+        $origin = InputSanitizer::clean(trim((string) ($validated['origin'] ?? ''))) ?: 'TBD';
+        $destination = InputSanitizer::clean(trim((string) ($validated['destination'] ?? ''))) ?: 'TBD';
+        $purpose = InputSanitizer::clean(trim((string) ($validated['purpose'] ?? ''))) ?: 'Not specified';
         $scheduledDeparture = $validated['scheduled_departure'] ?? null;
         $scheduledDepartureForStorage = $scheduledDeparture ?: now()->toDateTimeString();
 
@@ -285,8 +308,8 @@ class TripController extends Controller
         if (!empty($validated['passengers'])) {
             foreach ($validated['passengers'] as $passenger) {
                 $trip->passengers()->create([
-                    'name' => $passenger['name'],
-                    'designation' => $passenger['designation'] ?? null,
+                    'name' => InputSanitizer::clean($passenger['name']),
+                    'designation' => InputSanitizer::clean($passenger['designation'] ?? null),
                 ]);
             }
         }

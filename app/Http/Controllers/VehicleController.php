@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\Vehicle;
+use App\Helpers\InputSanitizer;
 
 class VehicleController extends Controller
 {
@@ -22,8 +23,8 @@ class VehicleController extends Controller
         ]);
 
         $vehicle = Vehicle::create([
-            'name' => $validated['name'],
-            'plate_no' => $validated['plate_no'],
+            'name' => InputSanitizer::clean($validated['name']),
+            'plate_no' => InputSanitizer::clean($validated['plate_no']),
             'status' => $validated['status'] ?? 'active',
         ]);
 
@@ -41,7 +42,11 @@ class VehicleController extends Controller
             'status' => 'nullable|string',
         ]);
 
-        $vehicle->update($validated);
+        $vehicle->update([
+            'name' => InputSanitizer::clean($validated['name']),
+            'plate_no' => InputSanitizer::clean($validated['plate_no']),
+            'status' => $validated['status'] ?? $vehicle->status,
+        ]);
 
         return response()->json(['message' => 'Vehicle updated', 'vehicle' => $vehicle]);
     }
