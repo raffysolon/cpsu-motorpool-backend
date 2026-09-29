@@ -14,18 +14,19 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
 
-Route::post('/login', [AuthController::class, 'login']);
+// Login endpoint - STRICT rate limit (5 attempts per minute)
+Route::middleware('throttle:login')->post('/login', [AuthController::class, 'login']);
 
 // ============================================
-// ADMIN-ONLY ROUTES
+// ADMIN-ONLY ROUTES (with rate limiting)
 // ============================================
-Route::middleware(['auth:sanctum', 'role:admin'])->group(function () {
+Route::middleware(['auth:sanctum', 'role:admin', 'throttle:api'])->group(function () {
     // Driver Management (Admin Only)
     Route::get('/drivers', [DriverController::class, 'index']);
     Route::post('/drivers', [DriverController::class, 'store']);
     Route::put('/drivers/{driver}', [DriverController::class, 'update']);
     Route::delete('/drivers/{driver}', [DriverController::class, 'destroy']);
-    Route::post('/drivers/{driver}/reset-password', [DriverController::class, 'resetPassword']);
+    Route::middleware('throttle:password-reset')->post('/drivers/{driver}/reset-password', [DriverController::class, 'resetPassword']);
 
     // Vehicle Management (Admin Only)
     Route::get('/vehicles', [VehicleController::class, 'index']);
@@ -49,9 +50,9 @@ Route::middleware(['auth:sanctum', 'role:admin'])->group(function () {
 });
 
 // ============================================
-// AUTHENTICATED ROUTES (Admin + Driver)
+// AUTHENTICATED ROUTES (Admin + Driver with rate limiting)
 // ============================================
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     // My Assignment (Driver/Coordinator can view their own)
     Route::get('/my-assignment', [MyAssignmentController::class, 'show']);
 
@@ -60,12 +61,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/notifications/{notification}/read', [NotificationController::class, 'markAsRead']);
     Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
     
-    // Change Password
-    Route::put('/change-password', [AuthController::class, 'changePassword']);
+    // Change Password (with stricter limit)
+    Route::middleware('throttle:password-reset')->put('/change-password', [AuthController::class, 'changePassword']);
 
     // Trip Management - Shared Actions
     Route::get('/my-trips', [TripController::class, 'myTrips']); // Driver sees own trips
-    Route::get('/trips/preview-pdf', [TripController::class, 'previewPdf']);
+    Route::middleware('throttle:heavy')->get('/trips/preview-pdf', [TripController::class, 'previewPdf']);
     Route::post('/trips', [TripController::class, 'store']); // Driver creates trip request
     Route::get('/trips/{trip}', [TripController::class, 'show']);
     Route::put('/trips/{trip}', [TripController::class, 'update']); // Has auth check inside controller
@@ -73,5 +74,5 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/trips/{trip}/end', [TripController::class, 'end']); // Driver only
     Route::post('/trips/{trip}/start-return', [TripController::class, 'startReturn']); // Driver only
     Route::post('/trips/{trip}/end-return', [TripController::class, 'endReturn']); // Driver only
-    Route::get('/trips/{trip}/print', [TripController::class, 'print']);
+    Route::middleware('throttle:heavy')->get('/trips/{trip}/print', [TripController::class, 'print']);
 });
