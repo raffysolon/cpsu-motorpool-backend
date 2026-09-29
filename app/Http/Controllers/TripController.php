@@ -130,30 +130,80 @@ class TripController extends Controller
     }
     public function index(Request $request)
     {
-        $trips = Trip::with(['driver', 'vehicle', 'passengers', 'movements'])
-            ->latest()
-            ->get();
+        $query = Trip::with(['driver', 'vehicle', 'passengers', 'movements']);
 
-        $trips->each(fn (Trip $trip) => $this->ensureMovements($trip));
+        // Search functionality
+        if ($request->has('search') && $request->input('search') !== '') {
+            $search = $request->input('search');
+            
+            $query->where(function($q) use ($search) {
+                $q->where('destination', 'like', "%{$search}%")
+                  ->orWhere('origin', 'like', "%{$search}%")
+                  ->orWhere('purpose', 'like', "%{$search}%")
+                  ->orWhereHas('driver', function($dq) use ($search) {
+                      $dq->where('name', 'like', "%{$search}%");
+                  })
+                  ->orWhereHas('vehicle', function($vq) use ($search) {
+                      $vq->where('name', 'like', "%{$search}%")
+                        ->orWhere('plate_no', 'like', "%{$search}%");
+                  });
+            });
+        }
+
+        // Filter by status
+        if ($request->has('status') && $request->input('status') !== '') {
+            $query->where('status', $request->input('status'));
+        }
+
+        // Filter by date range
+        if ($request->has('date_from')) {
+            $query->whereDate('scheduled_departure', '>=', $request->input('date_from'));
+        }
+        if ($request->has('date_to')) {
+            $query->whereDate('scheduled_departure', '<=', $request->input('date_to'));
+        }
+
+        // Filter by driver
+        if ($request->has('driver_id')) {
+            $query->where('driver_id', $request->input('driver_id'));
+        }
+
+        // Pagination
+        $perPage = $request->input('per_page', 20);
+        $trips = $query->latest()->paginate($perPage);
+
+        $trips->getCollection()->transform(function ($trip) {
+            $this->ensureMovements($trip);
+            return $trip;
+        });
 
         return response()->json($trips);
     }
 
     public function myTrips(Request $request)
     {
-        $status = strtolower((string) $request->query('status', ''));
-        $today = now()->startOfDay();
-
         $query = Trip::with(['vehicle', 'passengers', 'movements'])
             ->where('driver_id', $request->user()->id);
 
+        // Search functionality
+        if ($request->has('search') && $request->input('search') !== '') {
+            $search = $request->input('search');
+            
+            $query->where(function($q) use ($search) {
+                $q->where('destination', 'like', "%{$search}%")
+                  ->orWhere('origin', 'like', "%{$search}%")
+                  ->orWhere('purpose', 'like', "%{$search}%");
+            });
+        }
+
+        // Filter by status
+        $status = strtolower((string) $request->query('status', ''));
+        
         if ($status !== '') {
             if ($status === 'pending') {
                 $query->where('status', 'pending');
             } elseif ($status === 'approved') {
-                $query->where(function ($q) {
-                    $q->where('status', 'approved');
-                });
+                $query->where('status', 'approved');
             } elseif ($status === 'scheduled') {
                 $query->where('status', 'approved');
             } elseif ($status === 'active') {
@@ -165,14 +215,25 @@ class TripController extends Controller
             }
         }
 
-        $trips = $query->latest()->get();
+        // Filter by date range
+        if ($request->has('date_from')) {
+            $query->whereDate('scheduled_departure', '>=', $request->input('date_from'));
+        }
+        if ($request->has('date_to')) {
+            $query->whereDate('scheduled_departure', '<=', $request->input('date_to'));
+        }
 
-        $trips->each(fn (Trip $trip) => $this->ensureMovements($trip));
+        // Pagination
+        $perPage = $request->input('per_page', 20);
+        $trips = $query->latest()->paginate($perPage);
 
-        return response()->json($trips->map(function ($trip) {
+        $trips->getCollection()->transform(function ($trip) {
+            $this->ensureMovements($trip);
             $trip->effective_status = $trip->effective_status;
             return $trip;
-        }));
+        });
+
+        return response()->json($trips);
     }
 
     public function store(Request $request)

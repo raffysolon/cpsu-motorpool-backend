@@ -8,9 +8,29 @@ use App\Helpers\InputSanitizer;
 
 class VehicleController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $vehicles = Vehicle::all();
+        $query = Vehicle::query();
+
+        // Search functionality
+        if ($request->has('search') && $request->input('search') !== '') {
+            $search = $request->input('search');
+            
+            $query->where(function($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('plate_no', 'like', "%{$search}%");
+            });
+        }
+
+        // Filter by status
+        if ($request->has('status') && $request->input('status') !== '') {
+            $query->where('status', $request->input('status'));
+        }
+
+        // Pagination
+        $perPage = $request->input('per_page', 20);
+        $vehicles = $query->paginate($perPage);
+
         return response()->json($vehicles);
     }
 

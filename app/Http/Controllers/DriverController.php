@@ -10,9 +10,26 @@ use Illuminate\Support\Facades\Hash;
 
 class DriverController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $drivers = User::where('role', 'driver')->get();
+        $query = User::where('role', 'driver');
+
+        // Search functionality
+        if ($request->has('search') && $request->input('search') !== '') {
+            $search = $request->input('search');
+            
+            $query->where(function($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('email', 'like', "%{$search}%")
+                  ->orWhere('contact_number', 'like', "%{$search}%")
+                  ->orWhere('license_number', 'like', "%{$search}%");
+            });
+        }
+
+        // Pagination
+        $perPage = $request->input('per_page', 20);
+        $drivers = $query->paginate($perPage);
+
         return response()->json($drivers);
     }
 
