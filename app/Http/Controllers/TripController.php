@@ -132,21 +132,23 @@ class TripController extends Controller
     {
         $query = Trip::with(['driver', 'vehicle', 'passengers', 'movements']);
 
-        // Search functionality
+        // Search functionality - DRIVER NAME and VEHICLE NAME ONLY
         if ($request->has('search') && $request->input('search') !== '') {
             $search = $request->input('search');
             
+            // Debug: Log search query
+            \Log::info('Trip Search:', ['query' => $search]);
+            
             $query->where(function($q) use ($search) {
-                $q->where('destination', 'like', "%{$search}%")
-                  ->orWhere('origin', 'like', "%{$search}%")
-                  ->orWhere('purpose', 'like', "%{$search}%")
-                  ->orWhereHas('driver', function($dq) use ($search) {
-                      $dq->where('name', 'like', "%{$search}%");
-                  })
-                  ->orWhereHas('vehicle', function($vq) use ($search) {
-                      $vq->where('name', 'like', "%{$search}%")
-                        ->orWhere('plate_no', 'like', "%{$search}%");
-                  });
+                // Search by driver name (case-insensitive)
+                $q->whereHas('driver', function($dq) use ($search) {
+                    $dq->where('name', 'like', "%{$search}%");
+                })
+                // OR search by vehicle name or plate number (case-insensitive)
+                ->orWhereHas('vehicle', function($vq) use ($search) {
+                    $vq->where('name', 'like', "%{$search}%")
+                      ->orWhere('plate_no', 'like', "%{$search}%");
+                });
             });
         }
 
