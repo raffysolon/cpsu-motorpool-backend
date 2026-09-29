@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\User;
+use App\Rules\StrongPassword;
 use Illuminate\Support\Facades\Hash;
 
 class DriverController extends Controller
@@ -21,7 +22,7 @@ class DriverController extends Controller
             'email' => 'required|email|unique:users,email',
             'contact_number' => 'nullable|string',
             'license_number' => 'nullable|string',
-            'password' => 'required|string|min:8',
+            'password' => ['required', 'string', 'min:8', new StrongPassword()],
         ]);
 
         $driver = User::create([
@@ -46,7 +47,7 @@ class DriverController extends Controller
             'email' => 'required|email|unique:users,email,' . $driver->id,
             'contact_number' => 'nullable|string',
             'license_number' => 'nullable|string',
-            'password' => 'nullable|string|min:8',
+            'password' => ['nullable', 'string', 'min:8', new StrongPassword()],
         ]);
 
         $driver->name = $validated['name'];
@@ -71,15 +72,32 @@ class DriverController extends Controller
 
     public function resetPassword(User $driver)
     {
-        $newTempPassword = 'Driver@' . rand(1000, 9999);
+        // Generate secure random password (12 characters)
+        // Format: Uppercase + lowercase + numbers + special chars
+        $uppercase = chr(rand(65, 90)); // A-Z
+        $lowercase = chr(rand(97, 122)); // a-z
+        $number = rand(0, 9);
+        $special = ['!', '@', '#', '$', '%', '^', '&', '*'][rand(0, 7)];
+        
+        // Generate additional random characters
+        $chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
+        $randomPart = '';
+        for ($i = 0; $i < 8; $i++) {
+            $randomPart .= $chars[rand(0, strlen($chars) - 1)];
+        }
+        
+        // Combine and shuffle
+        $newTempPassword = $uppercase . $lowercase . $number . $special . $randomPart;
+        $newTempPassword = str_shuffle($newTempPassword);
 
         $driver->update([
             'password' => Hash::make($newTempPassword),
         ]);
 
         return response()->json([
-            'message' => 'Password reset successfully',
+            'message' => 'Password reset successfully. The driver must change this password on first login.',
             'temporary_password' => $newTempPassword,
+            'note' => 'This temporary password is shown only once. Make sure to copy it.',
         ]);
     }
 }
