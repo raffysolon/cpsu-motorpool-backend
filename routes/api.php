@@ -16,44 +16,62 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 
 Route::post('/login', [AuthController::class, 'login']);
 
-Route::middleware('auth:sanctum')->group(function () {
+// ============================================
+// ADMIN-ONLY ROUTES
+// ============================================
+Route::middleware(['auth:sanctum', 'role:admin'])->group(function () {
+    // Driver Management (Admin Only)
     Route::get('/drivers', [DriverController::class, 'index']);
     Route::post('/drivers', [DriverController::class, 'store']);
     Route::put('/drivers/{driver}', [DriverController::class, 'update']);
     Route::delete('/drivers/{driver}', [DriverController::class, 'destroy']);
     Route::post('/drivers/{driver}/reset-password', [DriverController::class, 'resetPassword']);
 
+    // Vehicle Management (Admin Only)
     Route::get('/vehicles', [VehicleController::class, 'index']);
     Route::post('/vehicles', [VehicleController::class, 'store']);
     Route::put('/vehicles/{vehicle}', [VehicleController::class, 'update']);
     Route::delete('/vehicles/{vehicle}', [VehicleController::class, 'destroy']);
 
+    // Coordinator Assignment Management (Admin Only)
     Route::get('/coordinator-assignments', [CoordinatorAssignmentController::class, 'index']);
     Route::post('/coordinator-assignments', [CoordinatorAssignmentController::class, 'store']);
     Route::put('/coordinator-assignments/{assignment}', [CoordinatorAssignmentController::class, 'update']);
     Route::delete('/coordinator-assignments/{assignment}', [CoordinatorAssignmentController::class, 'destroy']);
 
+    // Trip Management - Admin Actions
+    Route::get('/trips', [TripController::class, 'index']); // View all trips
+    Route::post('/trips/admin-create', [TripController::class, 'adminStore']); // Create trip as admin
+    Route::get('/available-drivers', [TripController::class, 'availableDrivers']);
+    Route::get('/available-vehicles', [TripController::class, 'availableVehicles']);
+    Route::put('/trips/{trip}/approve', [TripController::class, 'approve']);
+    Route::put('/trips/{trip}/deny', [TripController::class, 'deny']);
+});
+
+// ============================================
+// AUTHENTICATED ROUTES (Admin + Driver)
+// ============================================
+Route::middleware('auth:sanctum')->group(function () {
+    // My Assignment (Driver/Coordinator can view their own)
     Route::get('/my-assignment', [MyAssignmentController::class, 'show']);
 
+    // Notifications
     Route::get('/notifications', [NotificationController::class, 'index']);
     Route::put('/notifications/{notification}/read', [NotificationController::class, 'markAsRead']);
     Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
+    
+    // Change Password
     Route::put('/change-password', [AuthController::class, 'changePassword']);
 
-    Route::get('/trips', [TripController::class, 'index']);
-    Route::get('/my-trips', [TripController::class, 'myTrips']);
+    // Trip Management - Shared Actions
+    Route::get('/my-trips', [TripController::class, 'myTrips']); // Driver sees own trips
     Route::get('/trips/preview-pdf', [TripController::class, 'previewPdf']);
-    Route::post('/trips', [TripController::class, 'store']);
-    Route::post('/trips/admin-create', [TripController::class, 'adminStore']);
-    Route::get('/available-drivers', [TripController::class, 'availableDrivers']);
-    Route::get('/available-vehicles', [TripController::class, 'availableVehicles']);
+    Route::post('/trips', [TripController::class, 'store']); // Driver creates trip request
     Route::get('/trips/{trip}', [TripController::class, 'show']);
-    Route::put('/trips/{trip}', [TripController::class, 'update']);
-    Route::post('/trips/{trip}/start', [TripController::class, 'start']);
-    Route::post('/trips/{trip}/end', [TripController::class, 'end']);
-    Route::post('/trips/{trip}/start-return', [TripController::class, 'startReturn']);
-    Route::post('/trips/{trip}/end-return', [TripController::class, 'endReturn']);
-    Route::put('/trips/{trip}/approve', [TripController::class, 'approve']);
-    Route::put('/trips/{trip}/deny', [TripController::class, 'deny']);
+    Route::put('/trips/{trip}', [TripController::class, 'update']); // Has auth check inside controller
+    Route::post('/trips/{trip}/start', [TripController::class, 'start']); // Driver only
+    Route::post('/trips/{trip}/end', [TripController::class, 'end']); // Driver only
+    Route::post('/trips/{trip}/start-return', [TripController::class, 'startReturn']); // Driver only
+    Route::post('/trips/{trip}/end-return', [TripController::class, 'endReturn']); // Driver only
     Route::get('/trips/{trip}/print', [TripController::class, 'print']);
 });
