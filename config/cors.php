@@ -20,16 +20,22 @@ return [
     'allowed_methods' => ['*'],
 
     'allowed_origins' => [
-        'https://cpsumotorpool-admin.netlify.app',  // Production admin web app
-        'http://localhost:3000',                     // Local development (React/Vue)
-        'http://localhost:8080',                     // Local development (Vue alternative port)
-        'http://127.0.0.1:3000',                     // Local development (alternative)
-        'http://localhost',                          // Local testing
+        'https://cpsumotorpool-admin.netlify.app',  // Production Netlify
+        'http://localhost:3000',
+        'http://localhost:8080',
+        'http://localhost:54018',                    // Flutter web debug port
+        'http://localhost:54019',
+        'http://127.0.0.1:3000',
+        'http://localhost',
     ],
 
     'allowed_origins_patterns' => [
-        // Allow Netlify preview deployments: https://deploy-preview-123--cpsumotorpool-admin.netlify.app
+        // Netlify preview deployments
         '#^https://.*--cpsumotorpool-admin\.netlify\.app$#',
+        // Any Vercel deployment
+        '#^https://.*\.vercel\.app$#',
+        // Flutter localhost any port
+        '#^http://localhost:\d+$#',
     ],
 
     'allowed_headers' => ['*'],
