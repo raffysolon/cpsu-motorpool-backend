@@ -10,6 +10,15 @@ use App\Http\Controllers\MyAssignmentController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\TripController;
 
+// Simple test route
+Route::get('/test', function () {
+    return response()->json([
+        'status' => 'success',
+        'message' => 'Laravel API is working!',
+        'timestamp' => now()
+    ]);
+});
+
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
