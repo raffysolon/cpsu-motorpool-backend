@@ -39,6 +39,16 @@ Route::middleware('throttle:login')->post('/login', [AuthController::class, 'log
 // Test login without throttle for debugging
 Route::post('/login-test', [AuthController::class, 'login']);
 
+// Simple login test
+Route::post('/simple-login', function (Request $request) {
+    return response()->json([
+        'status' => 'received',
+        'email' => $request->email,
+        'has_password' => !empty($request->password),
+        'timestamp' => now()
+    ]);
+});
+
 // ============================================
 // ADMIN-ONLY ROUTES (with rate limiting)
 // ============================================
