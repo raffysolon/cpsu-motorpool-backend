@@ -36,6 +36,9 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 // Login endpoint - STRICT rate limit (5 attempts per minute)
 Route::middleware('throttle:login')->post('/login', [AuthController::class, 'login']);
 
+// Test login without throttle for debugging
+Route::post('/login-test', [AuthController::class, 'login']);
+
 // ============================================
 // ADMIN-ONLY ROUTES (with rate limiting)
 // ============================================
