@@ -19,6 +19,16 @@ Route::get('/test', function () {
     ]);
 });
 
+// Test auth without middleware
+Route::get('/auth-test', function () {
+    return response()->json([
+        'status' => 'success',
+        'message' => 'Auth system ready!',
+        'sanctum_loaded' => class_exists('Laravel\Sanctum\Sanctum'),
+        'user_model' => class_exists('App\Models\User')
+    ]);
+});
+
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
