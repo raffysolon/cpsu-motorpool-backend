@@ -20,16 +20,19 @@ return [
     'allowed_methods' => ['*'],
 
     'allowed_origins' => [
-        'https://cpsumotorpool-admin.netlify.app',  // Production Netlify
+        'https://cpsumotorpool.vercel.app',            // Production Vercel
+        'https://cpsumotorpool-admin.netlify.app',     // Old Netlify (keep for backup)
         'http://localhost:3000',
         'http://localhost:8080',
-        'http://localhost:54018',                    // Flutter web debug port
+        'http://localhost:54018',                       // Flutter web debug port
         'http://localhost:54019',
         'http://127.0.0.1:3000',
         'http://localhost',
     ],
 
     'allowed_origins_patterns' => [
+        // Vercel preview deployments
+        '#^https://.*\.vercel\.app$#',
         // Netlify preview deployments
         '#^https://.*--cpsumotorpool-admin\.netlify\.app$#',
         // Any Vercel deployment
