@@ -2,6 +2,12 @@
 
 namespace App\Providers;
 
+use App\Models\Trip;
+use App\Models\TripMovement;
+use App\Models\TripPassenger;
+use App\Models\User;
+use App\Models\Vehicle;
+use App\Observers\TripListingCacheObserver;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
@@ -22,6 +28,12 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        Trip::observe(TripListingCacheObserver::class);
+        TripMovement::observe(TripListingCacheObserver::class);
+        TripPassenger::observe(TripListingCacheObserver::class);
+        User::observe(TripListingCacheObserver::class);
+        Vehicle::observe(TripListingCacheObserver::class);
+
         $this->configureRateLimiting();
     }
 
@@ -57,7 +69,7 @@ class AppServiceProvider extends ServiceProvider
         // General API endpoints - reasonable limit (60 requests per minute per user/IP)
         RateLimiter::for('api', function (Request $request) {
             $key = $request->user()?->id ?: $request->ip();
-            
+
             return Limit::perMinute(60)
                 ->by($key)
                 ->response(function (Request $request, array $headers) {
@@ -71,7 +83,7 @@ class AppServiceProvider extends ServiceProvider
         // Heavy operations - stricter limit (10 requests per minute)
         RateLimiter::for('heavy', function (Request $request) {
             $key = $request->user()?->id ?: $request->ip();
-            
+
             return Limit::perMinute(10)
                 ->by($key)
                 ->response(function (Request $request, array $headers) {

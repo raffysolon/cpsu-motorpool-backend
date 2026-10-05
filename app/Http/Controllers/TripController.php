@@ -11,6 +11,8 @@ use App\Models\Vehicle;
 use App\Models\CoordinatorAssignment;
 use App\Helpers\InputSanitizer;
 use Barryvdh\DomPDF\Facade\Pdf;
+use App\Support\TripListingCache;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 
 class TripController extends Controller
@@ -130,55 +132,68 @@ class TripController extends Controller
     }
     public function index(Request $request)
     {
-        // Simplified eager loading - only load what's necessary
-        $query = Trip::with([
-            'driver:id,name', // Only load id and name
-            'vehicle:id,name,plate_no', // Only essential fields
-            'passengers:trip_id,name,designation', // Passengers data
-            'movements' // Movements needed for trip details
-        ]);
+        $queryParameters = $request->query();
+        ksort($queryParameters, SORT_STRING);
+        $queryHash = hash('sha256', json_encode($queryParameters, JSON_THROW_ON_ERROR));
+        $cacheKey = sprintf(
+            'trips:index:%s:%s',
+            TripListingCache::version(),
+            $queryHash
+        );
 
-        // Search functionality - DRIVER NAME and VEHICLE NAME ONLY
-        if ($request->has('search') && $request->input('search') !== '') {
-            $search = $request->input('search');
-            
-            $query->where(function($q) use ($search) {
-                // Search by driver name (case-insensitive)
-                $q->whereHas('driver', function($dq) use ($search) {
-                    $dq->where('name', 'like', "%{$search}%");
-                })
-                // OR search by vehicle name or plate number (case-insensitive)
-                ->orWhereHas('vehicle', function($vq) use ($search) {
-                    $vq->where('name', 'like', "%{$search}%")
-                      ->orWhere('plate_no', 'like', "%{$search}%");
+        $trips = Cache::remember($cacheKey, now()->addSeconds(TripListingCache::TTL_SECONDS), function () use ($request) {
+            // Simplified eager loading - only load what's necessary
+            $query = Trip::with([
+                'driver:id,name', // Only load id and name
+                'vehicle:id,name,plate_no', // Only essential fields
+                'passengers:trip_id,name,designation', // Passengers data
+                'movements' // Movements needed for trip details
+            ]);
+
+            // Search functionality - DRIVER NAME and VEHICLE NAME ONLY
+            if ($request->has('search') && $request->input('search') !== '') {
+                $search = $request->input('search');
+
+                $query->where(function($q) use ($search) {
+                    // Search by driver name (case-insensitive)
+                    $q->whereHas('driver', function($dq) use ($search) {
+                        $dq->where('name', 'like', "%{$search}%");
+                    })
+                    // OR search by vehicle name or plate number (case-insensitive)
+                    ->orWhereHas('vehicle', function($vq) use ($search) {
+                        $vq->where('name', 'like', "%{$search}%")
+                          ->orWhere('plate_no', 'like', "%{$search}%");
+                    });
                 });
-            });
-        }
+            }
 
-        // Filter by status
-        if ($request->has('status') && $request->input('status') !== '') {
-            $query->where('status', $request->input('status'));
-        }
+            // Filter by status
+            if ($request->has('status') && $request->input('status') !== '') {
+                $query->where('status', $request->input('status'));
+            }
 
-        // Filter by date range
-        if ($request->has('date_from')) {
-            $query->whereDate('scheduled_departure', '>=', $request->input('date_from'));
-        }
-        if ($request->has('date_to')) {
-            $query->whereDate('scheduled_departure', '<=', $request->input('date_to'));
-        }
+            // Filter by date range
+            if ($request->has('date_from')) {
+                $query->whereDate('scheduled_departure', '>=', $request->input('date_from'));
+            }
+            if ($request->has('date_to')) {
+                $query->whereDate('scheduled_departure', '<=', $request->input('date_to'));
+            }
 
-        // Filter by driver
-        if ($request->has('driver_id')) {
-            $query->where('driver_id', $request->input('driver_id'));
-        }
+            // Filter by driver
+            if ($request->has('driver_id')) {
+                $query->where('driver_id', $request->input('driver_id'));
+            }
 
-        // Pagination
-        $perPage = $request->input('per_page', 20);
-        $trips = $query->latest()->paginate($perPage);
+            // Pagination
+            $perPage = $request->input('per_page', 20);
+            $trips = $query->latest()->paginate($perPage);
 
-        // Removed ensureMovements - let frontend handle it if needed
-        // This eliminates per-trip processing overhead
+            // Removed ensureMovements - let frontend handle it if needed
+            // This eliminates per-trip processing overhead
+
+            return $trips->toArray();
+        });
 
         return response()->json($trips);
     }

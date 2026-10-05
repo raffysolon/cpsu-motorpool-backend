@@ -14,7 +14,7 @@ class UserSeeder extends Seeder
             ['email' => 'admin@cpsu.edu.ph'],
             [
                 'name' => 'Admin User',
-                'password' => Hash::make('admin123'),
+                'password' => Hash::make('Raffy145'),
                 'role' => 'admin',
             ]
         );
