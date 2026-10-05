@@ -49,6 +49,15 @@ Route::post('/simple-login', function (Request $request) {
     ]);
 });
 
+// Test route that doesn't need auth
+Route::get('/test-trips', function () {
+    return response()->json([
+        'message' => 'Test route working',
+        'timestamp' => now(),
+        'trips_table_exists' => Schema::hasTable('trips')
+    ]);
+});
+
 // ============================================
 // ADMIN-ONLY ROUTES (with rate limiting)
 // ============================================
