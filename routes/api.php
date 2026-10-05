@@ -36,8 +36,30 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 // Login endpoint - STRICT rate limit (5 attempts per minute)
 Route::middleware('throttle:login')->post('/login', [AuthController::class, 'login']);
 
-// Test login without throttle for debugging
-Route::post('/login-test', [AuthController::class, 'login']);
+// Debug login endpoint without throttling
+Route::post('/debug-login', function (Request $request) {
+    try {
+        $request->validate([
+            'email' => 'required|email',
+            'password' => 'required',
+        ]);
+
+        return response()->json([
+            'status' => 'validation_passed',
+            'database_connection' => config('database.default'),
+            'cache_store' => config('cache.default'),
+            'timestamp' => now()
+        ]);
+    } catch (Exception $e) {
+        return response()->json([
+            'error' => 'Validation or config error',
+            'message' => $e->getMessage(),
+            'line' => $e->getLine(),
+            'file' => basename($e->getFile()),
+            'timestamp' => now()
+        ], 500);
+    }
+});
 
 // Simple login test
 Route::post('/simple-login', function (Request $request) {
@@ -49,13 +71,78 @@ Route::post('/simple-login', function (Request $request) {
     ]);
 });
 
-// Test route that doesn't need auth
-Route::get('/test-trips', function () {
+// Simple config check route
+Route::get('/config-check', function () {
     return response()->json([
-        'message' => 'Test route working',
-        'timestamp' => now(),
-        'trips_table_exists' => Schema::hasTable('trips')
+        'db_default' => config('database.default'),
+        'cache_default' => config('cache.default'),
+        'app_env' => config('app.env'),
+        'timestamp' => now()->toISOString()
     ]);
+});
+
+// Test database connection and configuration
+Route::get('/test-db', function () {
+    try {
+        return response()->json([
+            'database_default' => config('database.default'),
+            'connection_name' => config('database.connections.'.config('database.default').'.driver'),
+            'database_name' => config('database.connections.'.config('database.default').'.database'),
+            'host' => config('database.connections.'.config('database.default').'.host'),
+            'cache_store' => config('cache.default'),
+            'cache_database' => config('cache.stores.database.connection'),
+            'timestamp' => now()
+        ]);
+    } catch (Exception $e) {
+        return response()->json([
+            'message' => 'Configuration error',
+            'error' => $e->getMessage(),
+            'timestamp' => now()
+        ], 500);
+    }
+});
+
+// Test actual database connection
+Route::get('/test-db-connection', function () {
+    try {
+        $connection = \DB::connection();
+        $pdo = $connection->getPdo();
+        $driver = $pdo->getAttribute(\PDO::ATTR_DRIVER_NAME);
+        
+        // Test if we can write to database
+        $canWrite = false;
+        try {
+            \DB::table('cache')->where('key', 'test_write')->delete();
+            \DB::table('cache')->insert([
+                'key' => 'test_write',
+                'value' => 'test',
+                'expiration' => time() + 60
+            ]);
+            \DB::table('cache')->where('key', 'test_write')->delete();
+            $canWrite = true;
+        } catch (Exception $writeError) {
+            $canWrite = false;
+        }
+        
+        return response()->json([
+            'pdo_driver' => $driver,
+            'connection_name' => $connection->getName(),
+            'can_write' => $canWrite,
+            'tables_exist' => [
+                'users' => \Schema::hasTable('users'),
+                'personal_access_tokens' => \Schema::hasTable('personal_access_tokens'),
+                'cache' => \Schema::hasTable('cache'),
+                'jobs' => \Schema::hasTable('jobs')
+            ],
+            'timestamp' => now()
+        ]);
+    } catch (Exception $e) {
+        return response()->json([
+            'message' => 'Database connection error',
+            'error' => $e->getMessage(),
+            'timestamp' => now()
+        ], 500);
+    }
 });
 
 // ============================================
