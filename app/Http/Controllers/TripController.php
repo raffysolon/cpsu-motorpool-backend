@@ -130,14 +130,17 @@ class TripController extends Controller
     }
     public function index(Request $request)
     {
-        $query = Trip::with(['driver', 'vehicle', 'passengers', 'movements']);
+        // Simplified eager loading - only load what's necessary
+        $query = Trip::with([
+            'driver:id,name', // Only load id and name
+            'vehicle:id,name,plate_no', // Only essential fields
+            'passengers:trip_id,name,designation', // Passengers data
+            'movements' // Movements needed for trip details
+        ]);
 
         // Search functionality - DRIVER NAME and VEHICLE NAME ONLY
         if ($request->has('search') && $request->input('search') !== '') {
             $search = $request->input('search');
-            
-            // Debug: Log search query
-            \Log::info('Trip Search:', ['query' => $search]);
             
             $query->where(function($q) use ($search) {
                 // Search by driver name (case-insensitive)
@@ -174,10 +177,8 @@ class TripController extends Controller
         $perPage = $request->input('per_page', 20);
         $trips = $query->latest()->paginate($perPage);
 
-        $trips->getCollection()->transform(function ($trip) {
-            $this->ensureMovements($trip);
-            return $trip;
-        });
+        // Removed ensureMovements - let frontend handle it if needed
+        // This eliminates per-trip processing overhead
 
         return response()->json($trips);
     }
