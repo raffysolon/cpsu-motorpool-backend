@@ -71,7 +71,7 @@ Route::post('/simple-login', function (Request $request) {
     ]);
 });
 
-// Simple config check route
+// Simple config check route (force redeploy)
 Route::get('/config-check', function () {
     return response()->json([
         'db_default' => config('database.default'),
