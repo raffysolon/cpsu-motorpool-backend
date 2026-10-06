@@ -48,6 +48,29 @@ class TripStatusFlowTest extends TestCase
             ->assertJsonPath('0.status', 'pending');
     }
 
+    public function test_my_trips_returns_newly_created_movements(): void
+    {
+        $driver = User::factory()->create(['role' => 'driver']);
+        $trip = Trip::create([
+            'driver_id' => $driver->id,
+            'vehicle_id' => null,
+            'origin' => 'Office',
+            'destination' => 'City Hall',
+            'purpose' => 'Official Business',
+            'scheduled_departure' => now()->addDay(),
+            'status' => 'pending',
+        ]);
+
+        Sanctum::actingAs($driver, ['*']);
+
+        $this->getJson('/api/my-trips')
+            ->assertOk()
+            ->assertJsonPath('data.0.movements.0.movement_no', 1)
+            ->assertJsonPath('data.0.movements.1.movement_no', 2);
+
+        $this->assertDatabaseCount('trip_movements', 2);
+    }
+
     public function test_driver_can_update_departure_details_on_existing_trip(): void
     {
         $driver = User::factory()->create(['role' => 'driver']);

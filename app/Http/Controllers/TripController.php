@@ -19,31 +19,18 @@ class TripController extends Controller
 {
     private function conflictingResourceIds(string $resourceKey, ?string $scheduledDeparture = null)
     {
-        $selectedDate = $scheduledDeparture ? Carbon::parse($scheduledDeparture) : null;
+        $query = Trip::query()->whereIn('status', ['approved', 'active']);
 
-        $resourceIds = Trip::query()
-            ->whereNotIn('status', ['denied', 'completed'])
-            ->get()
-            ->filter(function ($trip) use ($selectedDate) {
-                if ($selectedDate === null) {
-                    return in_array($trip->status, ['approved', 'active'], true);
-                }
+        if ($scheduledDeparture) {
+            $minute = Carbon::parse($scheduledDeparture)->startOfMinute();
+            $query->where('scheduled_departure', '>=', $minute)
+                ->where('scheduled_departure', '<', $minute->copy()->addMinute());
+        }
 
-                $tripDate = Carbon::parse($trip->scheduled_departure);
-                $sameSchedule = in_array($trip->status, ['approved', 'active'], true)
-                    && $tripDate->format('Y-m-d H:i:s') === $selectedDate->format('Y-m-d H:i:s');
-                $sameSlot = in_array($trip->status, ['approved', 'active'], true)
-                    && $tripDate->isSameDay($selectedDate)
-                    && $tripDate->hour === $selectedDate->hour
-                    && $tripDate->minute === $selectedDate->minute;
-
-                return $sameSchedule || $sameSlot;
-            })
-            ->pluck($resourceKey)
+        return $query->pluck($resourceKey)
             ->filter(fn ($id) => !empty($id))
-            ->unique();
-
-        return $resourceIds;
+            ->unique()
+            ->values();
     }
 
     private function hasResourceConflict(string $resourceKey, int $resourceId, ?string $scheduledDeparture = null, ?int $excludeTripId = null): bool
@@ -82,11 +69,16 @@ class TripController extends Controller
 
     private function createViceVersaMovements(Trip $trip, ?string $returnScheduledDeparture = null): void
     {
-        if ($trip->movements()->exists()) {
+        $movementsLoaded = $trip->relationLoaded('movements');
+        $hasMovements = $movementsLoaded
+            ? $trip->getRelation('movements')->isNotEmpty()
+            : $trip->movements()->exists();
+
+        if ($hasMovements) {
             return;
         }
 
-        $trip->movements()->createMany([
+        $movements = $trip->movements()->createMany([
             [
                 'movement_no' => 1,
                 'origin' => $trip->origin,
@@ -102,6 +94,10 @@ class TripController extends Controller
                 'status' => 'scheduled',
             ],
         ]);
+
+        if ($movementsLoaded) {
+            $trip->setRelation('movements', $movements);
+        }
     }
 
     private function ensureMovements(Trip $trip): void
@@ -417,7 +413,9 @@ class TripController extends Controller
             ? $this->conflictingResourceIds('driver_id', $scheduledDeparture)
             : collect();
 
-        $assignedDriverIds = CoordinatorAssignment::pluck('driver_id')
+        $assignments = CoordinatorAssignment::get();
+        $assignedDriverIds = $assignments
+            ->pluck('driver_id')
             ->filter()
             ->unique()
             ->values()
@@ -432,8 +430,8 @@ class TripController extends Controller
                 $query->whereNotIn('id', $occupiedDriverIds);
             })
             ->get()
-            ->map(function ($driver) {
-                $driver->coordinator_assignment = CoordinatorAssignment::where('driver_id', $driver->id)->first();
+            ->map(function ($driver) use ($assignments) {
+                $driver->coordinator_assignment = $assignments->firstWhere('driver_id', $driver->id);
                 return $driver;
             });
 
@@ -447,7 +445,9 @@ class TripController extends Controller
             ? $this->conflictingResourceIds('vehicle_id', $scheduledDeparture)
             : collect();
 
-        $assignedVehicleIds = CoordinatorAssignment::pluck('vehicle_id')
+        $assignments = CoordinatorAssignment::get();
+        $assignedVehicleIds = $assignments
+            ->pluck('vehicle_id')
             ->filter()
             ->unique()
             ->values()
@@ -462,8 +462,8 @@ class TripController extends Controller
                 $query->whereNotIn('id', $occupiedVehicleIds);
             })
             ->get()
-            ->map(function ($vehicle) {
-                $vehicle->coordinator_assignment = CoordinatorAssignment::where('vehicle_id', $vehicle->id)->first();
+            ->map(function ($vehicle) use ($assignments) {
+                $vehicle->coordinator_assignment = $assignments->firstWhere('vehicle_id', $vehicle->id);
                 return $vehicle;
             });
 
