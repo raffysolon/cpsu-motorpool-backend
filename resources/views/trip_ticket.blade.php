@@ -25,7 +25,7 @@
 
         @page {
             size: 8.5in 13in;
-            margin: 8mm 12mm 5mm 12mm;
+            margin: 8mm 8mm 5mm 8mm;
         }
 
         * {
@@ -44,7 +44,7 @@
         }
 
         .wrapper {
-            padding: 4mm 4mm 0 4mm;
+            padding: 2mm 0mm 0 0mm;
             max-width: 100%;
         }
 
@@ -488,7 +488,7 @@
             }
 
             .wrapper {
-                padding: 4mm 4mm 0 4mm;
+                padding: 2mm 0mm 0 0mm;
             }
 
             /*
