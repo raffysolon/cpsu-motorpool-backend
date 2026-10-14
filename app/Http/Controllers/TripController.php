@@ -9,28 +9,38 @@ use App\Models\Trip;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\CoordinatorAssignment;
-use App\Helpers\InputSanitizer;
 use Barryvdh\DomPDF\Facade\Pdf;
-use App\Support\TripListingCache;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 
 class TripController extends Controller
 {
     private function conflictingResourceIds(string $resourceKey, ?string $scheduledDeparture = null)
     {
-        $query = Trip::query()->whereIn('status', ['approved', 'active']);
+        $selectedDate = $scheduledDeparture ? Carbon::parse($scheduledDeparture) : null;
 
-        if ($scheduledDeparture) {
-            $minute = Carbon::parse($scheduledDeparture)->startOfMinute();
-            $query->where('scheduled_departure', '>=', $minute)
-                ->where('scheduled_departure', '<', $minute->copy()->addMinute());
-        }
+        $resourceIds = Trip::query()
+            ->whereNotIn('status', ['denied', 'completed'])
+            ->get()
+            ->filter(function ($trip) use ($selectedDate) {
+                if ($selectedDate === null) {
+                    return in_array($trip->status, ['approved', 'active'], true);
+                }
 
-        return $query->pluck($resourceKey)
+                $tripDate = Carbon::parse($trip->scheduled_departure);
+                $sameSchedule = in_array($trip->status, ['approved', 'active'], true)
+                    && $tripDate->format('Y-m-d H:i:s') === $selectedDate->format('Y-m-d H:i:s');
+                $sameSlot = in_array($trip->status, ['approved', 'active'], true)
+                    && $tripDate->isSameDay($selectedDate)
+                    && $tripDate->hour === $selectedDate->hour
+                    && $tripDate->minute === $selectedDate->minute;
+
+                return $sameSchedule || $sameSlot;
+            })
+            ->pluck($resourceKey)
             ->filter(fn ($id) => !empty($id))
-            ->unique()
-            ->values();
+            ->unique();
+
+        return $resourceIds;
     }
 
     private function hasResourceConflict(string $resourceKey, int $resourceId, ?string $scheduledDeparture = null, ?int $excludeTripId = null): bool
@@ -69,16 +79,11 @@ class TripController extends Controller
 
     private function createViceVersaMovements(Trip $trip, ?string $returnScheduledDeparture = null): void
     {
-        $movementsLoaded = $trip->relationLoaded('movements');
-        $hasMovements = $movementsLoaded
-            ? $trip->getRelation('movements')->isNotEmpty()
-            : $trip->movements()->exists();
-
-        if ($hasMovements) {
+        if ($trip->movements()->exists()) {
             return;
         }
 
-        $movements = $trip->movements()->createMany([
+        $trip->movements()->createMany([
             [
                 'movement_no' => 1,
                 'origin' => $trip->origin,
@@ -94,10 +99,6 @@ class TripController extends Controller
                 'status' => 'scheduled',
             ],
         ]);
-
-        if ($movementsLoaded) {
-            $trip->setRelation('movements', $movements);
-        }
     }
 
     private function ensureMovements(Trip $trip): void
@@ -128,96 +129,30 @@ class TripController extends Controller
     }
     public function index(Request $request)
     {
-        $queryParameters = $request->query();
-        ksort($queryParameters, SORT_STRING);
-        $queryHash = hash('sha256', json_encode($queryParameters, JSON_THROW_ON_ERROR));
-        $cacheKey = sprintf(
-            'trips:index:%s:%s',
-            TripListingCache::version(),
-            $queryHash
-        );
+        $trips = Trip::with(['driver', 'vehicle', 'passengers', 'movements'])
+            ->latest()
+            ->get();
 
-        $trips = Cache::remember($cacheKey, now()->addSeconds(TripListingCache::TTL_SECONDS), function () use ($request) {
-            // Simplified eager loading - only load what's necessary
-            $query = Trip::with([
-                'driver:id,name', // Only load id and name
-                'vehicle:id,name,plate_no', // Only essential fields
-                'passengers:trip_id,name,designation', // Passengers data
-                'movements' // Movements needed for trip details
-            ]);
-
-            // Search functionality - DRIVER NAME and VEHICLE NAME ONLY
-            if ($request->has('search') && $request->input('search') !== '') {
-                $search = $request->input('search');
-
-                $query->where(function($q) use ($search) {
-                    // Search by driver name (case-insensitive)
-                    $q->whereHas('driver', function($dq) use ($search) {
-                        $dq->where('name', 'like', "%{$search}%");
-                    })
-                    // OR search by vehicle name or plate number (case-insensitive)
-                    ->orWhereHas('vehicle', function($vq) use ($search) {
-                        $vq->where('name', 'like', "%{$search}%")
-                          ->orWhere('plate_no', 'like', "%{$search}%");
-                    });
-                });
-            }
-
-            // Filter by status
-            if ($request->has('status') && $request->input('status') !== '') {
-                $query->where('status', $request->input('status'));
-            }
-
-            // Filter by date range
-            if ($request->has('date_from')) {
-                $query->whereDate('scheduled_departure', '>=', $request->input('date_from'));
-            }
-            if ($request->has('date_to')) {
-                $query->whereDate('scheduled_departure', '<=', $request->input('date_to'));
-            }
-
-            // Filter by driver
-            if ($request->has('driver_id')) {
-                $query->where('driver_id', $request->input('driver_id'));
-            }
-
-            // Pagination
-            $perPage = $request->input('per_page', 20);
-            $trips = $query->latest()->paginate($perPage);
-
-            // Removed ensureMovements - let frontend handle it if needed
-            // This eliminates per-trip processing overhead
-
-            return $trips->toArray();
-        });
+        $trips->each(fn (Trip $trip) => $this->ensureMovements($trip));
 
         return response()->json($trips);
     }
 
     public function myTrips(Request $request)
     {
+        $status = strtolower((string) $request->query('status', ''));
+        $today = now()->startOfDay();
+
         $query = Trip::with(['vehicle', 'passengers', 'movements'])
             ->where('driver_id', $request->user()->id);
 
-        // Search functionality
-        if ($request->has('search') && $request->input('search') !== '') {
-            $search = $request->input('search');
-            
-            $query->where(function($q) use ($search) {
-                $q->where('destination', 'like', "%{$search}%")
-                  ->orWhere('origin', 'like', "%{$search}%")
-                  ->orWhere('purpose', 'like', "%{$search}%");
-            });
-        }
-
-        // Filter by status
-        $status = strtolower((string) $request->query('status', ''));
-        
         if ($status !== '') {
             if ($status === 'pending') {
                 $query->where('status', 'pending');
             } elseif ($status === 'approved') {
-                $query->where('status', 'approved');
+                $query->where(function ($q) {
+                    $q->where('status', 'approved');
+                });
             } elseif ($status === 'scheduled') {
                 $query->where('status', 'approved');
             } elseif ($status === 'active') {
@@ -229,25 +164,14 @@ class TripController extends Controller
             }
         }
 
-        // Filter by date range
-        if ($request->has('date_from')) {
-            $query->whereDate('scheduled_departure', '>=', $request->input('date_from'));
-        }
-        if ($request->has('date_to')) {
-            $query->whereDate('scheduled_departure', '<=', $request->input('date_to'));
-        }
+        $trips = $query->latest()->get();
 
-        // Pagination
-        $perPage = $request->input('per_page', 20);
-        $trips = $query->latest()->paginate($perPage);
+        $trips->each(fn (Trip $trip) => $this->ensureMovements($trip));
 
-        $trips->getCollection()->transform(function ($trip) {
-            $this->ensureMovements($trip);
+        return response()->json($trips->map(function ($trip) {
             $trip->effective_status = $trip->effective_status;
             return $trip;
-        });
-
-        return response()->json($trips);
+        }));
     }
 
     public function store(Request $request)
@@ -263,28 +187,7 @@ class TripController extends Controller
             'passengers.*.designation' => 'nullable|string',
         ]);
 
-        // Sanitize user inputs
-        $validated = InputSanitizer::cleanFields($validated, ['origin', 'destination', 'purpose']);
-
         $driver = $request->user();
-
-        // Check if driver has active or approved trips
-        $existingTrip = Trip::where('driver_id', $driver->id)
-            ->whereIn('status', ['active', 'approved'])
-            ->first();
-
-        if ($existingTrip) {
-            $statusText = $existingTrip->status === 'active' ? 'ongoing' : 'approved';
-            return response()->json([
-                'message' => "You cannot create a new trip request. You have an {$statusText} trip that must be completed first.",
-                'existing_trip' => [
-                    'id' => $existingTrip->id,
-                    'destination' => $existingTrip->destination,
-                    'status' => $existingTrip->status,
-                    'scheduled_departure' => $existingTrip->scheduled_departure,
-                ]
-            ], 422);
-        }
 
         $assignment = CoordinatorAssignment::with('vehicle')
             ->where('driver_id', $driver->id)
@@ -309,8 +212,8 @@ class TripController extends Controller
         if (!empty($validated['passengers'])) {
             foreach ($validated['passengers'] as $passenger) {
                 $trip->passengers()->create([
-                    'name' => InputSanitizer::clean($passenger['name']),
-                    'designation' => InputSanitizer::clean($passenger['designation'] ?? null),
+                    'name' => $passenger['name'],
+                    'designation' => $passenger['designation'] ?? null,
                 ]);
             }
         }
@@ -348,10 +251,9 @@ class TripController extends Controller
             'passengers.*.designation' => 'nullable|string',
         ]);
 
-        // Sanitize user inputs
-        $origin = InputSanitizer::clean(trim((string) ($validated['origin'] ?? ''))) ?: 'TBD';
-        $destination = InputSanitizer::clean(trim((string) ($validated['destination'] ?? ''))) ?: 'TBD';
-        $purpose = InputSanitizer::clean(trim((string) ($validated['purpose'] ?? ''))) ?: 'Not specified';
+        $origin = trim((string) ($validated['origin'] ?? '')) ?: 'TBD';
+        $destination = trim((string) ($validated['destination'] ?? '')) ?: 'TBD';
+        $purpose = trim((string) ($validated['purpose'] ?? '')) ?: 'Not specified';
         $scheduledDeparture = $validated['scheduled_departure'] ?? null;
         $scheduledDepartureForStorage = $scheduledDeparture ?: now()->toDateTimeString();
 
@@ -383,8 +285,8 @@ class TripController extends Controller
         if (!empty($validated['passengers'])) {
             foreach ($validated['passengers'] as $passenger) {
                 $trip->passengers()->create([
-                    'name' => InputSanitizer::clean($passenger['name']),
-                    'designation' => InputSanitizer::clean($passenger['designation'] ?? null),
+                    'name' => $passenger['name'],
+                    'designation' => $passenger['designation'] ?? null,
                 ]);
             }
         }
@@ -413,9 +315,7 @@ class TripController extends Controller
             ? $this->conflictingResourceIds('driver_id', $scheduledDeparture)
             : collect();
 
-        $assignments = CoordinatorAssignment::get();
-        $assignedDriverIds = $assignments
-            ->pluck('driver_id')
+        $assignedDriverIds = CoordinatorAssignment::pluck('driver_id')
             ->filter()
             ->unique()
             ->values()
@@ -430,8 +330,8 @@ class TripController extends Controller
                 $query->whereNotIn('id', $occupiedDriverIds);
             })
             ->get()
-            ->map(function ($driver) use ($assignments) {
-                $driver->coordinator_assignment = $assignments->firstWhere('driver_id', $driver->id);
+            ->map(function ($driver) {
+                $driver->coordinator_assignment = CoordinatorAssignment::where('driver_id', $driver->id)->first();
                 return $driver;
             });
 
@@ -445,9 +345,7 @@ class TripController extends Controller
             ? $this->conflictingResourceIds('vehicle_id', $scheduledDeparture)
             : collect();
 
-        $assignments = CoordinatorAssignment::get();
-        $assignedVehicleIds = $assignments
-            ->pluck('vehicle_id')
+        $assignedVehicleIds = CoordinatorAssignment::pluck('vehicle_id')
             ->filter()
             ->unique()
             ->values()
@@ -462,8 +360,8 @@ class TripController extends Controller
                 $query->whereNotIn('id', $occupiedVehicleIds);
             })
             ->get()
-            ->map(function ($vehicle) use ($assignments) {
-                $vehicle->coordinator_assignment = $assignments->firstWhere('vehicle_id', $vehicle->id);
+            ->map(function ($vehicle) {
+                $vehicle->coordinator_assignment = CoordinatorAssignment::where('vehicle_id', $vehicle->id)->first();
                 return $vehicle;
             });
 
