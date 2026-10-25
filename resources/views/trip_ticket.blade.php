@@ -379,22 +379,18 @@
 
         .fuel-item {
             display: inline-block;
-            white-space: nowrap;
             line-height: 1.1;
         }
 
         .fuel-label {
             display: inline-block;
-            white-space: nowrap;
         }
 
         .fuel-line {
             display: inline-block;
             width: 60px;
-            height: 10px;
             border-bottom: 1px solid #000;
-            margin-left: 4px;
-            vertical-align: bottom;
+            margin: 0 2px;
         }
 
         .fuel-indent {
@@ -439,6 +435,7 @@
 
         .certified-table .cert-line {
             width: 55%;
+            border-bottom: 1px solid #000;
         }
 
         .certified-table tr:last-child td[colspan="2"] {

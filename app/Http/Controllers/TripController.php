@@ -554,6 +554,14 @@ class TripController extends Controller
     public function deny(Trip $trip)
     {
         $trip->update(['status' => 'denied']);
+
+        Notification::create([
+            'user_id' => $trip->driver_id,
+            'trip_id' => $trip->id,
+            'message' => "Your trip request to {$trip->destination} has been denied",
+            'is_read' => false,
+        ]);
+
         return response()->json(['message' => 'Trip denied', 'trip' => $trip]);
     }
 

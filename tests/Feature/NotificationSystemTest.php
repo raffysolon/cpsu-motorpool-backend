@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Notification;
 use App\Models\Trip;
 use App\Models\User;
+use App\Models\Vehicle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -89,5 +90,90 @@ class NotificationSystemTest extends TestCase
             'id' => $notification->id,
             'is_read' => true,
         ]);
+    }
+
+    public function test_denied_trip_creates_a_notification_for_its_driver(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $driver = User::factory()->create(['name' => 'Driver One', 'role' => 'driver']);
+        $trip = Trip::create([
+            'driver_id' => $driver->id,
+            'vehicle_id' => null,
+            'origin' => 'Office',
+            'destination' => 'City Hall',
+            'purpose' => 'Official Business',
+            'scheduled_departure' => now()->addDay(),
+            'status' => 'pending',
+        ]);
+
+        Sanctum::actingAs($admin, ['*']);
+
+        $this->putJson('/api/trips/' . $trip->id . '/deny')
+            ->assertOk()
+            ->assertJsonPath('trip.status', 'denied');
+
+        $this->assertDatabaseHas('notifications', [
+            'user_id' => $driver->id,
+            'trip_id' => $trip->id,
+            'message' => 'Your trip request to City Hall has been denied',
+            'is_read' => false,
+        ]);
+
+        Sanctum::actingAs($driver, ['*']);
+
+        $this->getJson('/api/notifications')
+            ->assertOk()
+            ->assertJsonFragment(['message' => 'Your trip request to City Hall has been denied']);
+
+        $this->getJson('/api/notifications/unread-count')
+            ->assertOk()
+            ->assertJsonPath('count', 1);
+
+        $this->getJson('/api/my-trips?status=denied')
+            ->assertOk()
+            ->assertJsonPath('0.status', 'denied');
+    }
+
+    public function test_admin_assigned_trip_is_visible_and_notifies_the_driver(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $driver = User::factory()->create(['name' => 'Driver One', 'role' => 'driver']);
+        $vehicle = Vehicle::create([
+            'name' => 'Van 1',
+            'plate_no' => 'ABC-1234',
+            'status' => 'active',
+        ]);
+
+        Sanctum::actingAs($admin, ['*']);
+
+        $response = $this->postJson('/api/trips/admin-create', [
+            'driver_id' => $driver->id,
+            'vehicle_id' => $vehicle->id,
+            'origin' => 'Office',
+            'destination' => 'City Hall',
+            'purpose' => 'Official Business',
+            'scheduled_departure' => now()->addDay()->toDateTimeString(),
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('trip.driver_id', $driver->id)
+            ->assertJsonPath('trip.status', 'approved');
+
+        Sanctum::actingAs($driver, ['*']);
+
+        $this->getJson('/api/my-trips')
+            ->assertOk()
+            ->assertJsonPath('0.destination', 'City Hall')
+            ->assertJsonPath('0.status', 'approved');
+
+        $this->getJson('/api/notifications')
+            ->assertOk()
+            ->assertJsonFragment([
+                'message' => 'A new trip to City Hall has been created and assigned to you',
+            ]);
+
+        $this->getJson('/api/notifications/unread-count')
+            ->assertOk()
+            ->assertJsonPath('count', 1);
     }
 }
