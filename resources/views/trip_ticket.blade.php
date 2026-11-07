@@ -435,7 +435,6 @@
 
         .certified-table .cert-line {
             width: 55%;
-            border-bottom: 1px solid #000;
         }
 
         .certified-table tr:last-child td[colspan="2"] {
