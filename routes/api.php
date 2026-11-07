@@ -9,6 +9,7 @@ use App\Http\Controllers\CoordinatorAssignmentController;
 use App\Http\Controllers\MyAssignmentController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\TripController;
+use App\Http\Controllers\DeviceController;
 
 // Simple test route
 Route::get('/test', function () {
@@ -80,6 +81,8 @@ Route::get('/config-check', function () {
         'timestamp' => now()->toISOString()
     ]);
 });
+
+Route::get('/devices/health', [DeviceController::class, 'health']);
 
 // Test database connection and configuration
 Route::get('/test-db', function () {
@@ -161,6 +164,14 @@ Route::middleware(['auth:sanctum', 'role:admin', 'throttle:api'])->group(functio
     Route::post('/vehicles', [VehicleController::class, 'store']);
     Route::put('/vehicles/{vehicle}', [VehicleController::class, 'update']);
     Route::delete('/vehicles/{vehicle}', [VehicleController::class, 'destroy']);
+
+    // Device Registry (Admin Only)
+    Route::get('/devices', [DeviceController::class, 'index']);
+    Route::post('/devices/register', [DeviceController::class, 'register']);
+    Route::get('/devices/vehicle/{vehicle_id}', [DeviceController::class, 'byVehicle']);
+    Route::get('/devices/{device_id}', [DeviceController::class, 'show']);
+    Route::put('/devices/{device_id}', [DeviceController::class, 'update']);
+    Route::delete('/devices/{device_id}', [DeviceController::class, 'destroy']);
 
     // Coordinator Assignment Management (Admin Only)
     Route::get('/coordinator-assignments', [CoordinatorAssignmentController::class, 'index']);
