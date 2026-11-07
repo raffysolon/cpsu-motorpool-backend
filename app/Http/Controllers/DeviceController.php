@@ -39,9 +39,15 @@ class DeviceController extends Controller
             $query->where('is_online', $request->boolean('online'));
         }
 
-        return response()->json(
-            $query->orderByDesc('registered_at')->paginate(20)
-        );
+        $devices = $query->orderByDesc('registered_at')->paginate(20);
+
+        // Transform to include vehicle_name
+        $devices->getCollection()->transform(function ($device) {
+            $device->vehicle_name = $device->vehicle ? $device->vehicle->name : null;
+            return $device;
+        });
+
+        return response()->json($devices);
     }
 
     public function register(Request $request)
@@ -69,6 +75,9 @@ class DeviceController extends Controller
             'is_online' => false,
         ]);
 
+        // Add vehicle_name for response
+        $device->vehicle_name = $vehicle->name;
+
         return response()->json([
             'message' => 'Device registered successfully',
             'device' => $device,
@@ -80,6 +89,9 @@ class DeviceController extends Controller
         $device = Device::with('vehicle')
             ->where('device_id', $device_id)
             ->firstOrFail();
+
+        // Add vehicle_name
+        $device->vehicle_name = $device->vehicle ? $device->vehicle->name : null;
 
         return response()->json($device);
     }
@@ -98,6 +110,10 @@ class DeviceController extends Controller
         }
 
         $device->save();
+
+        // Reload with vehicle relationship and add vehicle_name
+        $device->load('vehicle');
+        $device->vehicle_name = $device->vehicle ? $device->vehicle->name : null;
 
         return response()->json([
             'message' => 'Device updated successfully',
