@@ -141,10 +141,21 @@ class TripController extends Controller
     public function myTrips(Request $request)
     {
         $status = strtolower((string) $request->query('status', ''));
+        $search = trim((string) $request->query('search', ''));
         $today = now()->startOfDay();
 
         $query = Trip::with(['vehicle', 'passengers', 'movements'])
             ->where('driver_id', $request->user()->id);
+
+        if ($search !== '') {
+            $query->where(function ($q) use ($search) {
+                $q->where('origin', 'like', "%{$search}%")
+                    ->orWhere('destination', 'like', "%{$search}%")
+                    ->orWhere('purpose', 'like', "%{$search}%")
+                    ->orWhere('status', 'like', "%{$search}%")
+                    ->orWhereRaw('LOWER(CAST(id AS CHAR)) LIKE ?', ['%' . strtolower($search) . '%']);
+            });
+        }
 
         if ($status !== '') {
             if ($status === 'pending') {
