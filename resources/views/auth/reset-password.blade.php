@@ -61,7 +61,7 @@
         <p class="message" role="status">{{ session('status') }}</p>
         <p>You can now sign in to the CPSU Motor Pool app with your new password.</p>
     @else
-        <form method="POST" action="{{ route('password.update') }}">
+        <form method="POST" action="{{ secure_url(route('password.update', [], false)) }}">
             @csrf
             <label for="email">Email</label>
             <input id="email" type="email" name="email" value="{{ old('email', $email) }}" readonly required>
