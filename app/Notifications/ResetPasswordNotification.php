@@ -9,10 +9,15 @@ class ResetPasswordNotification extends ResetPassword
 {
     public function toMail($notifiable)
     {
-        $url = url()->formatScheme('https')->route('password.reset', [
+        $url = route('password.reset', [
             'token' => $this->token,
             'email' => $notifiable->getEmailForPasswordReset(),
         ]);
+
+        // Force HTTPS if not already
+        if (str_starts_with($url, 'http://')) {
+            $url = str_replace('http://', 'https://', $url);
+        }
 
         return (new MailMessage)
             ->subject('Reset your CPSU Motor Pool password')
