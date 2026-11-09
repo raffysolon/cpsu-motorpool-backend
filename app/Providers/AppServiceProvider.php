@@ -54,9 +54,9 @@ class AppServiceProvider extends ServiceProvider
                 });
         });
 
-        // Password reset - prevent abuse (3 attempts per hour per IP)
+        // Password reset - prevent abuse (10 attempts per hour per IP)
         RateLimiter::for('password-reset', function (Request $request) {
-            return Limit::perHour(3)
+            return Limit::perHour(10)
                 ->by($request->ip())
                 ->response(function (Request $request, array $headers) {
                     return response()->json([
