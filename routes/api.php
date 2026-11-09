@@ -10,6 +10,7 @@ use App\Http\Controllers\MyAssignmentController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\TripController;
 use App\Http\Controllers\DeviceController;
+use App\Http\Controllers\PasswordResetController;
 
 // Simple test route
 Route::get('/test', function () {
@@ -36,6 +37,7 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 
 // Login endpoint - STRICT rate limit (5 attempts per minute)
 Route::middleware('throttle:login')->post('/login', [AuthController::class, 'login']);
+Route::middleware('throttle:password-reset')->post('/password/forgot', [PasswordResetController::class, 'requestReset']);
 
 // Debug login endpoint without throttling
 Route::post('/debug-login', function (Request $request) {
@@ -111,7 +113,7 @@ Route::get('/test-db-connection', function () {
         $connection = \DB::connection();
         $pdo = $connection->getPdo();
         $driver = $pdo->getAttribute(\PDO::ATTR_DRIVER_NAME);
-        
+
         // Test if we can write to database
         $canWrite = false;
         try {
@@ -126,7 +128,7 @@ Route::get('/test-db-connection', function () {
         } catch (Exception $writeError) {
             $canWrite = false;
         }
-        
+
         return response()->json([
             'pdo_driver' => $driver,
             'connection_name' => $connection->getName(),
@@ -199,7 +201,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::get('/notifications', [NotificationController::class, 'index']);
     Route::put('/notifications/{notification}/read', [NotificationController::class, 'markAsRead']);
     Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
-    
+
     // Change Password (with stricter limit)
     Route::middleware('throttle:password-reset')->put('/change-password', [AuthController::class, 'changePassword']);
 

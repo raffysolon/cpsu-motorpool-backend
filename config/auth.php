@@ -114,4 +114,12 @@ return [
 
     'password_timeout' => env('AUTH_PASSWORD_TIMEOUT', 10800),
 
+    'password_reset_testing' => [
+        'enabled' => env('PASSWORD_RESET_TEST_MODE', false),
+        'whitelist' => array_values(array_filter(array_map(
+            static fn ($email) => strtolower(trim($email)),
+            explode(',', (string) env('PASSWORD_RESET_WHITELIST', ''))
+        ))),
+    ],
+
 ];
