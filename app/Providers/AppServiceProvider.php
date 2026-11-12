@@ -29,6 +29,8 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         // Force HTTPS in production (Render.com)
+        // Note: Render already enforces HTTPS at ingress level,
+        // this ensures all generated URLs use https:// scheme
         if (config('app.env') === 'production') {
             \Illuminate\Support\Facades\URL::forceScheme('https');
         }
