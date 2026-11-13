@@ -28,6 +28,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        \Illuminate\Support\Facades\Mail::extend('brevo', fn (array $config = []) =>
+            new \App\Mail\BrevoTransport((string) ($config['key'] ?? ''))
+        );
+
         // Force HTTPS in production (Render.com)
         // Note: Render already enforces HTTPS at ingress level,
         // this ensures all generated URLs use https:// scheme
