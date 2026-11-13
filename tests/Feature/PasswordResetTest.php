@@ -29,7 +29,8 @@ class PasswordResetTest extends TestCase
             'email' => 'DRIVER@example.com',
         ]);
 
-        $response->assertOk()->assertExactJson(['message' => self::GENERIC_MESSAGE]);
+        $response->assertOk()->assertJson(['message' => self::GENERIC_MESSAGE]);
+        $response->assertJsonPath('attempts_remaining', 2)->assertJsonPath('retry_after', 0);
         Notification::assertSentTo($driver, ResetPasswordNotification::class);
     }
 
@@ -48,7 +49,7 @@ class PasswordResetTest extends TestCase
             'email' => $admin->email,
         ]);
 
-        $response->assertOk()->assertExactJson(['message' => self::GENERIC_MESSAGE]);
+        $response->assertOk()->assertJson(['message' => self::GENERIC_MESSAGE]);
         Notification::assertNothingSent();
     }
 
@@ -65,7 +66,7 @@ class PasswordResetTest extends TestCase
             'email' => $driver->email,
         ]);
 
-        $response->assertOk()->assertExactJson(['message' => self::GENERIC_MESSAGE]);
+        $response->assertOk()->assertJson(['message' => self::GENERIC_MESSAGE]);
         Notification::assertNothingSent();
     }
 
@@ -82,11 +83,11 @@ class PasswordResetTest extends TestCase
             'email' => $driver->email,
         ]);
 
-        $response->assertOk()->assertExactJson(['message' => self::GENERIC_MESSAGE]);
+        $response->assertOk()->assertJson(['message' => self::GENERIC_MESSAGE]);
         Notification::assertNothingSent();
     }
 
-    public function test_reset_request_is_limited_to_three_attempts_per_hour_per_ip(): void
+    public function test_reset_request_is_limited_to_three_attempts_per_email(): void
     {
         for ($attempt = 0; $attempt < 3; $attempt++) {
             $this->postJson('/api/password/forgot', [
@@ -97,6 +98,45 @@ class PasswordResetTest extends TestCase
         $this->postJson('/api/password/forgot', [
             'email' => 'unknown@example.com',
         ])->assertTooManyRequests();
+    }
+
+    public function test_cooldown_starts_at_third_attempt_and_does_not_extend(): void
+    {
+        for ($i = 0; $i < 2; $i++) {
+            $this->postJson('/api/password/forgot', ['email' => 'unknown@example.com'])->assertOk();
+        }
+        $this->travel(60)->seconds();
+        $this->postJson('/api/password/forgot', ['email' => 'UNKNOWN@example.com'])->assertOk();
+        $this->postJson('/api/password/forgot', ['email' => 'unknown@example.com'])
+            ->assertStatus(429)->assertJsonPath('retry_after', 300)->assertHeader('Retry-After', '300');
+        $this->travel(299)->seconds();
+        $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.5'])
+            ->postJson('/api/password/forgot', ['email' => 'unknown@example.com'])
+            ->assertStatus(429)->assertJsonPath('retry_after', 1);
+        $this->travel(1)->seconds();
+        $this->postJson('/api/password/forgot', ['email' => 'unknown@example.com'])->assertOk();
+        $this->travelBack();
+    }
+
+    public function test_another_email_has_its_own_quota(): void
+    {
+        for ($i = 0; $i < 3; $i++) {
+            $this->postJson('/api/password/forgot', ['email' => 'unknown@example.com'])->assertOk();
+        }
+        $this->postJson('/api/password/forgot', ['email' => 'other@example.com'])->assertOk();
+        $this->postJson('/api/password/forgot', ['email' => 'unknown@example.com'])->assertStatus(429);
+    }
+
+    public function test_blocked_request_never_sends_another_email(): void
+    {
+        Notification::fake();
+        config(['auth.password_reset_testing.enabled' => false, 'auth.passwords.users.throttle' => 0]);
+        $driver = $this->createUser('limited@example.com', 'driver');
+        for ($i = 0; $i < 3; $i++) {
+            $this->postJson('/api/password/forgot', ['email' => $driver->email])->assertOk();
+        }
+        $this->postJson('/api/password/forgot', ['email' => $driver->email])->assertStatus(429);
+        Notification::assertSentTimes(ResetPasswordNotification::class, 3);
     }
 
     public function test_reset_form_uses_email_and_token_from_the_link(): void

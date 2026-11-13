@@ -21,6 +21,41 @@ class PasswordResetController extends Controller
         ]);
 
         $email = strtolower(trim($validated['email']));
+
+        // Shared cache makes this quota apply across browsers, devices and IPs.
+        // Reserve an attempt before sending; the lock prevents parallel bypasses.
+        $key = 'forgot-password:'.hash('sha256', $email);
+        $lock = \Illuminate\Support\Facades\Cache::lock($key.':lock', 10);
+        if (! $lock->get()) {
+            return response()->json([
+                'message' => 'A reset request is being processed. Please try again shortly.',
+                'retry_after' => 1,
+            ], 429, ['Retry-After' => '1']);
+        }
+        try {
+            $state = \Illuminate\Support\Facades\Cache::get($key, ['attempts' => 0, 'until' => 0]);
+            $now = now()->timestamp;
+            if ($state['until'] <= $now) {
+                $state = ['attempts' => 0, 'until' => 0];
+            }
+            if ($state['attempts'] >= 3) {
+                $seconds = max(1, $state['until'] - $now);
+                return response()->json([
+                    'message' => 'You have used your 3 reset attempts. Please wait '.(int) ceil($seconds / 60).' minute(s) before trying again.',
+                    'retry_after' => $seconds,
+                ], 429, ['Retry-After' => (string) $seconds]);
+            }
+            // Five minutes of inactivity resets a partial quota. The third
+            // attempt starts a full five-minute cooldown; blocked requests
+            // never extend it.
+            \Illuminate\Support\Facades\Cache::put($key, [
+                'attempts' => $state['attempts'] + 1,
+                'until' => $now + 300,
+            ], 300);
+        } finally {
+            $lock->release();
+        }
+
         $user = User::whereRaw('LOWER(email) = ?', [$email])->first();
 
         if ($user?->role === 'admin') {
@@ -29,11 +64,19 @@ class PasswordResetController extends Controller
                 'ip' => $request->ip(),
             ]);
 
-            return response()->json(['message' => self::GENERIC_MESSAGE]);
+            return response()->json([
+                'message' => self::GENERIC_MESSAGE,
+                'attempts_remaining' => max(0, 2 - $state['attempts']),
+                'retry_after' => $state['attempts'] >= 2 ? 300 : 0,
+            ]);
         }
 
         if (! $user || $user->role !== 'driver') {
-            return response()->json(['message' => self::GENERIC_MESSAGE]);
+            return response()->json([
+                'message' => self::GENERIC_MESSAGE,
+                'attempts_remaining' => max(0, 2 - $state['attempts']),
+                'retry_after' => $state['attempts'] >= 2 ? 300 : 0,
+            ]);
         }
 
         if (config('auth.password_reset_testing.enabled')) {
@@ -43,13 +86,21 @@ class PasswordResetController extends Controller
             );
 
             if (! in_array($email, $whitelist, true)) {
-                return response()->json(['message' => self::GENERIC_MESSAGE]);
+                return response()->json([
+                'message' => self::GENERIC_MESSAGE,
+                'attempts_remaining' => max(0, 2 - $state['attempts']),
+                'retry_after' => $state['attempts'] >= 2 ? 300 : 0,
+            ]);
             }
         }
 
         Password::sendResetLink(['email' => $user->email]);
 
-        return response()->json(['message' => self::GENERIC_MESSAGE]);
+        return response()->json([
+                'message' => self::GENERIC_MESSAGE,
+                'attempts_remaining' => max(0, 2 - $state['attempts']),
+                'retry_after' => $state['attempts'] >= 2 ? 300 : 0,
+            ]);
     }
 
     public function showResetForm(Request $request)
