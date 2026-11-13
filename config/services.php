@@ -35,4 +35,7 @@ return [
         ],
     ],
 
+    'gateway' => [
+        'api_key' => env('GATEWAY_API_KEY'),
+    ],
 ];

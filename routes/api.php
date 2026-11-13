@@ -11,7 +11,8 @@ use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\TripController;
 use App\Http\Controllers\DeviceController;
 use App\Http\Controllers\PasswordResetController;
-
+use App\Http\Controllers\GpsLocationController;
+use App\Http\Middleware\GatewayAuthentication;
 // Simple test route
 Route::get('/test', function () {
     return response()->json([
@@ -85,6 +86,9 @@ Route::get('/config-check', function () {
 });
 
 Route::get('/devices/health', [DeviceController::class, 'health']);
+// GPS Location Submission (Gateway Only)
+Route::middleware([GatewayAuthentication::class, 'throttle:120,1'])
+    ->post('/gps/location', [GpsLocationController::class, 'store']);
 
 // Test database connection and configuration
 Route::get('/test-db', function () {
@@ -174,6 +178,12 @@ Route::middleware(['auth:sanctum', 'role:admin', 'throttle:api'])->group(functio
     Route::get('/devices/{device_id}', [DeviceController::class, 'show']);
     Route::put('/devices/{device_id}', [DeviceController::class, 'update']);
     Route::delete('/devices/{device_id}', [DeviceController::class, 'destroy']);
+    // GPS Tracking (Admin Only)
+Route::get('/gps/vehicles/{vehicle_id}/latest', [GpsLocationController::class, 'latest'])
+    ->whereNumber('vehicle_id');
+
+Route::get('/gps/vehicles/{vehicle_id}/history', [GpsLocationController::class, 'history'])
+    ->whereNumber('vehicle_id');
 
     // Coordinator Assignment Management (Admin Only)
     Route::get('/coordinator-assignments', [CoordinatorAssignmentController::class, 'index']);
