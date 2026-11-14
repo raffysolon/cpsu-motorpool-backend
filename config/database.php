@@ -17,7 +17,7 @@ return [
     |
     */
 
-    'default' => 'pgsql', // Force PostgreSQL for Railway deployment
+    'default' => env('DB_CONNECTION', 'pgsql'),
 
     /*
     |--------------------------------------------------------------------------
