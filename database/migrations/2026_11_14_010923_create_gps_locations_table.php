@@ -4,6 +4,7 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
@@ -38,6 +39,13 @@ return new class extends Migration
             $table->index(['vehicle_id', 'recorded_at']);
             $table->index(['device_registry_id', 'recorded_at']);
         });
+
+        // Enable Row Level Security for PostgreSQL
+        if (DB::connection()->getDriverName() === 'pgsql') {
+            DB::statement(
+                'ALTER TABLE gps_locations ENABLE ROW LEVEL SECURITY'
+            );
+        }
     }
 
     /**
