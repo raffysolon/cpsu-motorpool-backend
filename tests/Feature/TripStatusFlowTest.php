@@ -65,8 +65,8 @@ class TripStatusFlowTest extends TestCase
 
         $this->getJson('/api/my-trips')
             ->assertOk()
-            ->assertJsonPath('data.0.movements.0.movement_no', 1)
-            ->assertJsonPath('data.0.movements.1.movement_no', 2);
+            ->assertJsonPath('0.movements.0.movement_no', 1)
+            ->assertJsonPath('0.movements.1.movement_no', 2);
 
         $this->assertDatabaseCount('trip_movements', 2);
     }
@@ -132,7 +132,7 @@ class TripStatusFlowTest extends TestCase
             'status' => 'pending',
         ]);
 
-        Sanctum::actingAs($driver, ['*']);
+        Sanctum::actingAs(User::factory()->create(['role' => 'admin']), ['*']);
 
         $futureApprovalResponse = $this->putJson('/api/trips/' . $futureTrip->id . '/approve');
         $futureApprovalResponse->assertOk()
@@ -142,6 +142,7 @@ class TripStatusFlowTest extends TestCase
         $todayApprovalResponse->assertOk()
             ->assertJsonPath('trip.status', 'approved');
 
+        Sanctum::actingAs($driver, ['*']);
         $approvedTripsResponse = $this->getJson('/api/my-trips?status=approved');
         $approvedTripsResponse->assertOk()
             ->assertJsonCount(2)

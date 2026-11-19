@@ -21,12 +21,12 @@ class NotificationSystemTest extends TestCase
 
         $this->putJson('/api/change-password', [
             'current_password' => 'CurrentPass123',
-            'new_password' => 'NewPass123',
+            'new_password' => 'NewPass123!',
         ])
             ->assertOk()
             ->assertJsonPath('message', 'Password changed successfully.');
 
-        $this->assertTrue(password_verify('NewPass123', $user->fresh()->password));
+        $this->assertTrue(password_verify('NewPass123!', $user->fresh()->password));
     }
 
     public function test_password_change_rejects_an_incorrect_current_password(): void
@@ -36,7 +36,7 @@ class NotificationSystemTest extends TestCase
 
         $this->putJson('/api/change-password', [
             'current_password' => 'WrongPass123',
-            'new_password' => 'NewPass123',
+            'new_password' => 'NewPass123!',
         ])
             ->assertUnprocessable()
             ->assertJsonPath('message', 'The current password is incorrect.');

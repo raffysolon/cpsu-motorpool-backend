@@ -129,11 +129,16 @@ class TripController extends Controller
     }
     public function index(Request $request)
     {
-        $trips = Trip::with(['driver', 'vehicle', 'passengers', 'movements'])
-            ->latest()
-            ->get();
+        $query = Trip::with(['driver', 'vehicle', 'passengers', 'movements']);
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->query('status'));
+        }
+
+        $trips = $query->latest()->get();
 
         $trips->each(fn (Trip $trip) => $this->ensureMovements($trip));
+        $trips->load('movements');
 
         return response()->json($trips);
     }
@@ -178,6 +183,7 @@ class TripController extends Controller
         $trips = $query->latest()->get();
 
         $trips->each(fn (Trip $trip) => $this->ensureMovements($trip));
+        $trips->load('movements');
 
         return response()->json($trips->map(function ($trip) {
             $trip->effective_status = $trip->effective_status;

@@ -29,7 +29,7 @@ class TripIndexCacheTest extends TestCase
 
         $this->getJson('/api/trips?status=pending')
             ->assertOk()
-            ->assertJsonCount(0, 'data.0.passengers');
+            ->assertJsonCount(0, '0.passengers');
 
         $trip->passengers()->create([
             'name' => 'Test Passenger',
@@ -38,11 +38,11 @@ class TripIndexCacheTest extends TestCase
 
         $this->getJson('/api/trips?status=pending')
             ->assertOk()
-            ->assertJsonCount(1, 'data.0.passengers');
+            ->assertJsonCount(1, '0.passengers');
 
         $this->getJson('/api/trips?status=approved')
             ->assertOk()
-            ->assertJsonCount(0, 'data');
+            ->assertJsonCount(0);
     }
 
     public function test_creating_a_trip_invalidates_cached_trip_pages(): void
@@ -52,7 +52,7 @@ class TripIndexCacheTest extends TestCase
 
         $this->getJson('/api/trips?page=1&per_page=20')
             ->assertOk()
-            ->assertJsonCount(0, 'data');
+            ->assertJsonCount(0);
 
         Trip::create([
             'driver_id' => User::factory()->create(['role' => 'driver'])->id,
@@ -66,7 +66,7 @@ class TripIndexCacheTest extends TestCase
 
         $this->getJson('/api/trips?page=1&per_page=20')
             ->assertOk()
-            ->assertJsonCount(1, 'data');
+            ->assertJsonCount(1);
     }
 
     public function test_updating_and_deleting_a_trip_invalidates_filtered_results(): void
@@ -86,21 +86,21 @@ class TripIndexCacheTest extends TestCase
 
         $this->getJson('/api/trips?status=pending')
             ->assertOk()
-            ->assertJsonCount(1, 'data');
+            ->assertJsonCount(1);
 
         $trip->update(['status' => 'approved']);
 
         $this->getJson('/api/trips?status=pending')
             ->assertOk()
-            ->assertJsonCount(0, 'data');
+            ->assertJsonCount(0);
         $this->getJson('/api/trips?status=approved')
             ->assertOk()
-            ->assertJsonCount(1, 'data');
+            ->assertJsonCount(1);
 
         $trip->delete();
 
         $this->getJson('/api/trips?status=approved')
             ->assertOk()
-            ->assertJsonCount(0, 'data');
+            ->assertJsonCount(0);
     }
 }
