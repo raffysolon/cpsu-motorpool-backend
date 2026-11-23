@@ -146,7 +146,11 @@ class PasswordResetTest extends TestCase
             ->assertSee('driver@example.com')
             ->assertSee('reset-token', false)
             ->assertSee('name="_token"', false)
-            ->assertSee('Show new password')->assertSee('Show password confirmation');
+            ->assertSee('aria-label="Show new password"', false)
+            ->assertSee('aria-label="Show password confirmation"', false)
+            ->assertSee('class="password-field"', false)
+            ->assertDontSee('>Show new password</button>', false)
+            ->assertDontSee('>Show password confirmation</button>', false);
     }
 
     public function test_driver_can_use_a_reset_token_once_and_all_sanctum_tokens_are_revoked(): void
