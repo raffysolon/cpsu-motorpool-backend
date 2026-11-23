@@ -14,9 +14,11 @@ class NotificationSystemTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_authenticated_user_can_change_password(): void
+    public function test_authenticated_user_can_request_password_change_email(): void
     {
-        $user = User::factory()->create(['password' => 'CurrentPass123']);
+        \Illuminate\Support\Facades\Notification::fake();
+        config(['auth.password_reset_testing.enabled' => false]);
+        $user = User::factory()->create(['password' => 'CurrentPass123', 'role' => 'driver']);
         Sanctum::actingAs($user, ['*']);
 
         $this->putJson('/api/change-password', [
@@ -24,14 +26,16 @@ class NotificationSystemTest extends TestCase
             'new_password' => 'NewPass123',
         ])
             ->assertOk()
-            ->assertJsonPath('message', 'Password changed successfully.');
+            ->assertJsonPath('message', 'Check your registered email to finish changing your password.');
 
-        $this->assertTrue(password_verify('NewPass123', $user->fresh()->password));
+        $this->assertTrue(password_verify('CurrentPass123', $user->fresh()->password));
     }
 
     public function test_password_change_rejects_an_incorrect_current_password(): void
     {
-        $user = User::factory()->create(['password' => 'CurrentPass123']);
+        \Illuminate\Support\Facades\Notification::fake();
+        config(['auth.password_reset_testing.enabled' => false]);
+        $user = User::factory()->create(['password' => 'CurrentPass123', 'role' => 'driver']);
         Sanctum::actingAs($user, ['*']);
 
         $this->putJson('/api/change-password', [

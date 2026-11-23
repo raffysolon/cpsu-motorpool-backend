@@ -47,6 +47,7 @@
             font-weight: 700;
             cursor: pointer;
         }
+        .password-toggle { width: auto; margin-top: 6px; padding: 8px 12px; }
         .message { margin: 16px 0; color: #176E30; }
         .error { margin: 12px 0 0; color: #B42318; font-size: 14px; }
         @media (max-width: 480px) { main { padding: 24px; } }
@@ -55,7 +56,9 @@
 <body>
 <main>
     <h1>Set a new password</h1>
-    <p>Choose a new password for your CPSU Motor Pool driver account.</p>
+    <p>Choose a new password for your CPSU Motor Pool account.</p>
+
+    <p>Use at least 8 characters, including uppercase and lowercase letters, a number and a special character.</p>
 
     @if (session('status'))
         <p class="message" role="status">{{ session('status') }}</p>
@@ -69,10 +72,12 @@
 
             <label for="password">New password</label>
             <input id="password" type="password" name="password" minlength="8" autocomplete="new-password" required>
+            <button type="button" class="password-toggle" aria-controls="password" aria-pressed="false">Show new password</button>
             @error('password') <p class="error">{{ $message }}</p> @enderror
 
             <label for="password_confirmation">Confirm new password</label>
             <input id="password_confirmation" type="password" name="password_confirmation" minlength="8" autocomplete="new-password" required>
+            <button type="button" class="password-toggle" aria-controls="password_confirmation" aria-pressed="false">Show password confirmation</button>
             <input type="hidden" name="token" value="{{ old('token', $token) }}">
             @error('token') <p class="error">{{ $message }}</p> @enderror
 
@@ -80,5 +85,16 @@
         </form>
     @endif
 </main>
+<script>
+    document.querySelectorAll('.password-toggle').forEach(button => {
+        button.addEventListener('click', () => {
+            const input = document.getElementById(button.getAttribute('aria-controls'));
+            const visible = input.type === 'password';
+            input.type = visible ? 'text' : 'password';
+            button.setAttribute('aria-pressed', String(visible));
+            button.textContent = button.textContent.replace(visible ? 'Show' : 'Hide', visible ? 'Hide' : 'Show');
+        });
+    });
+</script>
 </body>
 </html>

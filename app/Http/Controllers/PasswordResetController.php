@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
+use App\Rules\StrongPassword;
 use Illuminate\Support\Facades\Password;
 
 class PasswordResetController extends Controller
@@ -58,20 +58,7 @@ class PasswordResetController extends Controller
 
         $user = User::whereRaw('LOWER(email) = ?', [$email])->first();
 
-        if ($user?->role === 'admin') {
-            Log::warning('Blocked password reset request for admin account.', [
-                'user_id' => $user->getKey(),
-                'ip' => $request->ip(),
-            ]);
-
-            return response()->json([
-                'message' => self::GENERIC_MESSAGE,
-                'attempts_remaining' => max(0, 2 - $state['attempts']),
-                'retry_after' => $state['attempts'] >= 2 ? 300 : 0,
-            ]);
-        }
-
-        if (! $user || $user->role !== 'driver') {
+        if (! $user || ! in_array($user->role, ['driver', 'admin'], true)) {
             return response()->json([
                 'message' => self::GENERIC_MESSAGE,
                 'attempts_remaining' => max(0, 2 - $state['attempts']),
@@ -116,21 +103,14 @@ class PasswordResetController extends Controller
         $validated = $request->validate([
             'token' => ['required', 'string'],
             'email' => ['required', 'email', 'max:255'],
-            'password' => ['required', 'string', 'min:8', 'confirmed'],
+            'password' => ['required', 'string', 'min:8', 'confirmed', new StrongPassword()],
             'password_confirmation' => ['required', 'string'],
         ]);
 
         $email = strtolower(trim($validated['email']));
         $user = User::whereRaw('LOWER(email) = ?', [$email])->first();
 
-        if (! $user || $user->role !== 'driver') {
-            if ($user?->role === 'admin') {
-                Log::warning('Blocked password reset completion for admin account.', [
-                    'user_id' => $user->getKey(),
-                    'ip' => $request->ip(),
-                ]);
-            }
-
+        if (! $user || ! in_array($user->role, ['driver', 'admin'], true)) {
             return $this->invalidResetResponse($request, $email, $validated['token']);
         }
 
@@ -143,14 +123,7 @@ class PasswordResetController extends Controller
                 'token' => $validated['token'],
             ],
             function (User $resetUser, string $password) use (&$resetPerformed, $request): void {
-                if ($resetUser->role !== 'driver') {
-                    if ($resetUser->role === 'admin') {
-                        Log::warning('Blocked password reset completion for admin account.', [
-                            'user_id' => $resetUser->getKey(),
-                            'ip' => $request->ip(),
-                        ]);
-                    }
-
+                if (! in_array($resetUser->role, ['driver', 'admin'], true)) {
                     return;
                 }
 

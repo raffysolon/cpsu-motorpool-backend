@@ -6,7 +6,7 @@ use App\Models\User;
 use App\Notifications\ResetPasswordNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Log;
+use Laravel\Sanctum\Sanctum;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Password;
 use Tests\TestCase;
@@ -34,23 +34,18 @@ class PasswordResetTest extends TestCase
         Notification::assertSentTo($driver, ResetPasswordNotification::class);
     }
 
-    public function test_admin_reset_request_is_blocked_and_logged(): void
+    public function test_admin_can_request_a_reset_link(): void
     {
         Notification::fake();
         $admin = $this->createUser('admin@example.com', 'admin');
-        Log::shouldReceive('warning')
-            ->once()
-            ->with(
-                'Blocked password reset request for admin account.',
-                \Mockery::on(fn (array $context) => $context['user_id'] === $admin->id)
-            );
+        config(['auth.password_reset_testing.enabled' => false]);
 
         $response = $this->postJson('/api/password/forgot', [
             'email' => $admin->email,
         ]);
 
         $response->assertOk()->assertJson(['message' => self::GENERIC_MESSAGE]);
-        Notification::assertNothingSent();
+        Notification::assertSentTo($admin, ResetPasswordNotification::class);
     }
 
     public function test_empty_test_whitelist_blocks_reset_delivery(): void
@@ -150,7 +145,8 @@ class PasswordResetTest extends TestCase
             ->assertOk()
             ->assertSee('driver@example.com')
             ->assertSee('reset-token', false)
-            ->assertSee('name="_token"', false);
+            ->assertSee('name="_token"', false)
+            ->assertSee('Show new password')->assertSee('Show password confirmation');
     }
 
     public function test_driver_can_use_a_reset_token_once_and_all_sanctum_tokens_are_revoked(): void
@@ -183,17 +179,11 @@ class PasswordResetTest extends TestCase
         $secondUse->assertUnprocessable();
     }
 
-    public function test_admin_cannot_complete_a_password_reset(): void
+    public function test_admin_can_complete_a_password_reset(): void
     {
         $admin = $this->createUser('admin@example.com', 'admin');
         $token = Password::broker()->createToken($admin);
-        Log::shouldReceive('warning')
-            ->once()
-            ->with(
-                'Blocked password reset completion for admin account.',
-                \Mockery::on(fn (array $context) => $context['user_id'] === $admin->id)
-            );
-
+        $admin->createToken('existing-session');
         $response = $this->postJson('/reset-password', [
             'email' => $admin->email,
             'token' => $token,
@@ -201,10 +191,54 @@ class PasswordResetTest extends TestCase
             'password_confirmation' => 'A-new-strong-password-123!',
         ]);
 
-        $response->assertUnprocessable()->assertExactJson([
-            'message' => 'Invalid or expired reset token.',
-        ]);
-        $this->assertTrue(Hash::check('Existing-password-123!', $admin->fresh()->password));
+        $response->assertOk();
+        $this->assertTrue(Hash::check('A-new-strong-password-123!', $admin->fresh()->password));
+        $this->assertSame(0, $admin->tokens()->count());
+    }
+
+    public function test_settings_requires_current_password_and_only_emails_the_signed_in_account(): void
+    {
+        Notification::fake();
+        config(['auth.password_reset_testing.enabled' => false]);
+        foreach (['admin', 'driver'] as $role) {
+            $user = $this->createUser($role.'@example.com', $role);
+            Sanctum::actingAs($user);
+            $this->putJson('/api/change-password', ['current_password' => 'wrong'])->assertUnprocessable();
+            Notification::assertNothingSentTo($user);
+            $this->putJson('/api/change-password', [
+                'current_password' => 'Existing-password-123!',
+                'email' => 'someone-else@example.com',
+                'new_password' => 'Do-not-apply-this-123!',
+            ])->assertOk();
+            Notification::assertSentTo($user, ResetPasswordNotification::class);
+            $this->assertTrue(Hash::check('Existing-password-123!', $user->fresh()->password));
+            $this->putJson('/api/change-password', ['current_password' => 'Existing-password-123!'])
+                ->assertStatus(429)->assertHeader('Retry-After');
+        }
+    }
+
+    public function test_settings_requires_authentication(): void
+    {
+        $this->putJson('/api/change-password', ['current_password' => 'Anything123!'])->assertUnauthorized();
+    }
+
+    public function test_invalid_expired_and_mismatched_tokens_cannot_change_admin_password(): void
+    {
+        $user = $this->createUser('admin@example.com', 'admin');
+        $token = Password::broker()->createToken($user);
+        foreach ([['token' => 'invalid'], ['email' => 'other@example.com'], ['password_confirmation' => 'Mismatch123!'], ['password' => 'weak', 'password_confirmation' => 'weak']] as $override) {
+            $this->postJson('/reset-password', array_merge([
+                'email' => $user->email, 'token' => $token,
+                'password' => 'Strong-password123!', 'password_confirmation' => 'Strong-password123!',
+            ], $override))->assertUnprocessable();
+        }
+        $this->travel(61)->minutes();
+        $this->postJson('/reset-password', [
+            'email' => $user->email, 'token' => $token,
+            'password' => 'Strong-password123!', 'password_confirmation' => 'Strong-password123!',
+        ])->assertUnprocessable();
+        $this->assertTrue(Hash::check('Existing-password-123!', $user->fresh()->password));
+        $this->travelBack();
     }
 
     private function createUser(string $email, string $role): User
