@@ -22,6 +22,7 @@ class GpsLocation extends Model
         'record_id',
         'device_sequence',
         'received_at',
+        'upload_source',
     ];
 
     protected $casts = [

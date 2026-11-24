@@ -16,12 +16,23 @@ class GpsLocationController extends Controller
         $validated = $request->validate([
             'device_id' => 'required|string|max:100',
             'record_id' => 'nullable|required_with:device_sequence|string|max:150|regex:/^[A-Za-z0-9_-]+$/',
-            'device_sequence' => 'nullable|integer|min:1',
-            'captured_at' => 'nullable|date',
+            'device_sequence' => 'nullable|integer|min:1|max:9223372036854775807',
+            'captured_at' => 'nullable|required_with:upload_source|date',
+            'upload_source' => 'nullable|in:live_lte,recovered_lte,recovered_lora',
             'latitude' => 'required|numeric|between:-90,90',
             'longitude' => 'required|numeric|between:-180,180',
             'satellites' => 'nullable|integer|min:0|max:255',
         ]);
+
+        // Match the database's seven decimal places before insert and comparison.
+        foreach (['latitude', 'longitude'] as $coordinate) {
+            $validated[$coordinate] = round((float) $validated[$coordinate], 7);
+        }
+        foreach (['device_sequence', 'satellites'] as $integer) {
+            if (isset($validated[$integer])) {
+                $validated[$integer] = (int) $validated[$integer];
+            }
+        }
 
         $device = Device::where(
             'device_id',
@@ -89,6 +100,7 @@ class GpsLocationController extends Controller
                         ? $captured->format('Y-m-d H:i:s')
                         : $utcNow,
                     'received_at' => $utcNow,
+                    'upload_source' => $validated['upload_source'] ?? null,
                     'created_at' => $utcNow,
                     'updated_at' => $utcNow,
                 ]);
@@ -104,14 +116,10 @@ class GpsLocationController extends Controller
                 // Interpret stored GPS timestamps as UTC.
                 $conflict =
                     (int) $location->device_registry_id !== (int) $device->id
-                    || abs(
-                        (float) $location->latitude -
-                        (float) $validated['latitude']
-                    ) > 0.000001
-                    || abs(
-                        (float) $location->longitude -
-                        (float) $validated['longitude']
-                    ) > 0.000001
+                    || round((float) $location->latitude, 7) !== $validated['latitude']
+                    || round((float) $location->longitude, 7) !== $validated['longitude']
+                    || $location->device_sequence !== ($validated['device_sequence'] ?? null)
+                    || $location->satellites !== ($validated['satellites'] ?? null)
                     || (
                         $captured &&
                         Carbon::parse(
@@ -133,6 +141,7 @@ class GpsLocationController extends Controller
                         ? $captured->format('Y-m-d H:i:s')
                         : $utcNow,
                     'received_at' => $utcNow,
+                    'upload_source' => $validated['upload_source'] ?? null,
                     'created_at' => $utcNow,
                     'updated_at' => $utcNow,
                 ]);
@@ -140,7 +149,15 @@ class GpsLocationController extends Controller
                 $created = true;
             }
 
-            if (!$conflict) {
+            // Replays and recovered samples are not evidence of current connectivity.
+            // Legacy firmware without capture time retains its existing behavior.
+            $source = $validated['upload_source'] ?? null;
+            $fresh = $captured === null || (
+                $captured->gte(now('UTC')->subMinutes(5))
+                && $captured->lte(now('UTC'))
+            );
+            if (!$conflict && $created && $fresh
+                && ($source === null || $source === 'live_lte')) {
                 $device->update([
                     'last_seen' => now(),
                     'is_online' => true,

@@ -13,3 +13,10 @@ Schedule::command('trips:check-departures')->everyMinute()->withoutOverlapping()
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
+
+Artisan::command('trackers:check-heartbeats', function () {
+    $count = app(\App\Services\TrackerHeartbeatMonitor::class)->check();
+    $this->info("Marked {$count} stale trackers offline.");
+})->purpose('Mark trackers offline after the connectivity timeout');
+
+Schedule::command('trackers:check-heartbeats')->everyMinute()->withoutOverlapping();

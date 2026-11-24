@@ -86,6 +86,9 @@ Route::get('/config-check', function () {
 });
 
 Route::get('/devices/health', [DeviceController::class, 'health']);
+Route::middleware([GatewayAuthentication::class, 'throttle:120,1'])
+    ->post('/devices/heartbeat', [\App\Http\Controllers\TrackerHeartbeatController::class, 'store']);
+
 // GPS Location Submission (Gateway Only)
 Route::middleware([GatewayAuthentication::class, 'throttle:120,1'])
     ->post('/gps/location', [GpsLocationController::class, 'store']);
