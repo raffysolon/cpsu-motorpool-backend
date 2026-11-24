@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\TrackerAvailability;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -24,6 +25,10 @@ class Device extends Model
         'tracker_key_hash',
     ];
 
+    protected $appends = [
+        'availability_status',
+    ];
+
     protected $casts = [
         'last_seen' => 'datetime',
         'registered_at' => 'datetime',
@@ -33,5 +38,14 @@ class Device extends Model
     public function vehicle()
     {
         return $this->belongsTo(Vehicle::class);
+    }
+
+    public function getAvailabilityStatusAttribute(): string
+    {
+        $lastHeartbeatAt = $this->getAttributes()['last_heartbeat_at'] ?? null;
+
+        return app(TrackerAvailability::class)->status(
+            is_string($lastHeartbeatAt) ? $lastHeartbeatAt : null
+        );
     }
 }

@@ -17,17 +17,16 @@ class TrackerHeartbeatController extends Controller
             'sent_at' => ['required', 'date', 'regex:/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(Z|[+-]\d{2}:\d{2})$/'],
         ]);
         $sent = Carbon::parse($data['sent_at'])->utc();
-        $now = now('UTC');
-        if ($sent->lt($now->copy()->subSeconds(config('tracking.heartbeat_max_age_seconds')))
-            || $sent->gt($now->copy()->addSeconds(config('tracking.heartbeat_future_tolerance_seconds')))) {
-            throw ValidationException::withMessages(['sent_at' => 'Heartbeat time is stale or too far in the future.']);
-        }
+        $this->validateHeartbeatTime($sent, now('UTC'));
 
         return DB::transaction(function () use ($data, $sent) {
             $device = Device::where('device_id', $data['device_id'])->lockForUpdate()->first();
             if (!$device) {
                 return response()->json(['message' => 'Device is not registered.'], 404);
             }
+
+            $this->validateHeartbeatTime($sent, now('UTC'));
+
             $previous = $device->getRawOriginal('last_heartbeat_at');
             $ignored = $previous !== null && $sent->lte(Carbon::parse($previous, 'UTC'));
             if (!$ignored) {
@@ -43,7 +42,24 @@ class TrackerHeartbeatController extends Controller
                 'acknowledged_sent_at' => $sent->toISOString(),
                 'ignored' => $ignored,
                 'is_online' => $device->is_online,
+                'availability_status' => $device->availability_status,
             ]);
         });
+    }
+
+    private function validateHeartbeatTime(Carbon $sent, Carbon $now): void
+    {
+        if (
+            $sent->lt($now->copy()->subSeconds(
+                config('tracking.heartbeat_max_age_seconds')
+            )) ||
+            $sent->gt($now->copy()->addSeconds(
+                config('tracking.heartbeat_future_tolerance_seconds')
+            ))
+        ) {
+            throw ValidationException::withMessages([
+                'sent_at' => 'Heartbeat time is stale or too far in the future.',
+            ]);
+        }
     }
 }

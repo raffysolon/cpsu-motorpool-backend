@@ -3,9 +3,11 @@
 namespace Tests\Feature;
 
 use App\Models\Device;
+use App\Models\User;
 use App\Models\Vehicle;
 use App\Services\TrackerHeartbeatMonitor;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 class TrackerHeartbeatTest extends TestCase
@@ -54,7 +56,8 @@ class TrackerHeartbeatTest extends TestCase
         $this->heartbeat()
             ->assertOk()
             ->assertJsonPath('ignored', false)
-            ->assertJsonPath('is_online', true);
+            ->assertJsonPath('is_online', true)
+            ->assertJsonPath('availability_status', 'online');
 
         $device = Device::first();
 
@@ -81,7 +84,7 @@ class TrackerHeartbeatTest extends TestCase
     public function test_stale_future_ambiguous_and_missing_times_are_rejected(): void
     {
         foreach ([
-            now('UTC')->subSeconds(91)->format('Y-m-d\TH:i:s\Z'),
+            now('UTC')->subSeconds(61)->format('Y-m-d\TH:i:s\Z'),
             now('UTC')->addSeconds(31)->format('Y-m-d\TH:i:s\Z'),
             '2026-11-24 12:00:00',
             'not-a-date',
@@ -120,6 +123,131 @@ class TrackerHeartbeatTest extends TestCase
             $before,
             Device::first()->getAttributes()
         );
+    }
+
+    public function test_availability_boundaries_and_future_timestamps_are_calculated_from_heartbeat_time(): void
+    {
+        $device = Device::firstOrFail();
+        $this->assertSame('unreachable', $device->availability_status);
+
+        foreach ([
+            0 => 'online',
+            30 => 'online',
+            60 => 'online',
+            61 => 'unstable',
+            90 => 'unstable',
+            120 => 'unstable',
+            121 => 'unreachable',
+        ] as $age => $expectedStatus) {
+            $device->forceFill([
+                'last_heartbeat_at' => now('UTC')
+                    ->subSeconds($age)
+                    ->format('Y-m-d H:i:s'),
+            ])->save();
+
+            $this->assertSame(
+                $expectedStatus,
+                $device->fresh()->availability_status,
+                "Unexpected availability at {$age} seconds."
+            );
+        }
+
+        $device->forceFill([
+            'last_heartbeat_at' => now('UTC')
+                ->addSeconds(30)
+                ->format('Y-m-d H:i:s'),
+        ])->save();
+
+        $this->assertSame('online', $device->fresh()->availability_status);
+    }
+
+    public function test_heartbeat_accepts_exactly_60_seconds_and_rejects_older_timestamps(): void
+    {
+        $sentAt = now('UTC')->subSeconds(60)->format('Y-m-d\TH:i:s\Z');
+
+        $this->heartbeat(['sent_at' => $sentAt])
+            ->assertOk()
+            ->assertJsonPath('ignored', false)
+            ->assertJsonPath('availability_status', 'online');
+
+        $storedHeartbeat = Device::firstOrFail()
+            ->getRawOriginal('last_heartbeat_at');
+        $storedLastSeen = Device::firstOrFail()
+            ->getRawOriginal('last_seen');
+
+        $this->heartbeat([
+            'sent_at' => now('UTC')->subSeconds(61)->format('Y-m-d\TH:i:s\Z'),
+        ])->assertUnprocessable()
+            ->assertJsonValidationErrors(['sent_at']);
+
+        $device = Device::firstOrFail();
+        $this->assertSame($storedHeartbeat, $device->getRawOriginal('last_heartbeat_at'));
+        $this->assertSame($storedLastSeen, $device->getRawOriginal('last_seen'));
+    }
+
+    public function test_future_heartbeat_is_clamped_and_blocks_replays_until_a_newer_timestamp_arrives(): void
+    {
+        $futureSentAt = now('UTC')
+            ->addSeconds(30)
+            ->format('Y-m-d\TH:i:s\Z');
+
+        $this->heartbeat(['sent_at' => $futureSentAt])
+            ->assertOk()
+            ->assertJsonPath('ignored', false)
+            ->assertJsonPath('availability_status', 'online');
+
+        $accepted = Device::firstOrFail();
+        $storedHeartbeat = $accepted->getRawOriginal('last_heartbeat_at');
+        $storedLastSeen = $accepted->getRawOriginal('last_seen');
+
+        $this->travel(10)->seconds();
+
+        $this->heartbeat(['sent_at' => $futureSentAt])
+            ->assertOk()
+            ->assertJsonPath('ignored', true)
+            ->assertJsonPath('availability_status', 'online');
+
+        $this->heartbeat([
+            'sent_at' => now('UTC')->format('Y-m-d\TH:i:s\Z'),
+        ])
+            ->assertOk()
+            ->assertJsonPath('ignored', true);
+
+        $this->assertSame(
+            $storedHeartbeat,
+            Device::firstOrFail()->getRawOriginal('last_heartbeat_at')
+        );
+        $this->assertSame(
+            $storedLastSeen,
+            Device::firstOrFail()->getRawOriginal('last_seen')
+        );
+
+        $this->travel(21)->seconds();
+
+        $this->heartbeat()
+            ->assertOk()
+            ->assertJsonPath('ignored', false)
+            ->assertJsonPath('availability_status', 'online');
+    }
+
+    public function test_device_api_adds_availability_and_preserves_existing_fields_and_hidden_hash(): void
+    {
+        Device::firstOrFail()->forceFill([
+            'tracker_key_hash' => str_repeat('f', 64),
+        ])->save();
+
+        Sanctum::actingAs(User::factory()->create([
+            'role' => 'admin',
+        ]), ['*']);
+
+        $this->getJson('/api/devices')
+            ->assertOk()
+            ->assertJsonPath('data.0.device_id', 'TRACKER-1')
+            ->assertJsonPath('data.0.availability_status', 'unreachable')
+            ->assertJsonPath('data.0.is_online', false)
+            ->assertJsonPath('data.0.last_seen', null)
+            ->assertJsonPath('data.0.last_heartbeat_at', null)
+            ->assertJsonMissingPath('data.0.tracker_key_hash');
     }
 
     public function test_monitor_expires_only_stale_devices_and_fresh_heartbeat_restores_online(): void
@@ -161,7 +289,8 @@ class TrackerHeartbeatTest extends TestCase
 
         $this->heartbeat()
             ->assertOk()
-            ->assertJsonPath('is_online', true);
+            ->assertJsonPath('is_online', true)
+            ->assertJsonPath('availability_status', 'online');
     }
 
     public function test_recovered_gps_cannot_revive_offline_tracker(): void
@@ -173,6 +302,12 @@ class TrackerHeartbeatTest extends TestCase
         app(TrackerHeartbeatMonitor::class)->check();
 
         $this->assertFalse(Device::first()->is_online);
+        $this->assertSame(
+            'unreachable',
+            Device::first()->availability_status
+        );
+        $lastHeartbeatAt = Device::first()
+            ->getRawOriginal('last_heartbeat_at');
 
         $this->withHeader('X-Gateway-Key', 'test-gateway')
             ->postJson('/api/gps/location', [
@@ -183,7 +318,7 @@ class TrackerHeartbeatTest extends TestCase
                 'longitude' => 123,
                 'satellites' => 5,
                 'upload_source' => 'recovered_lora',
-                'captured_at' => now()->subHour()->toISOString(),
+                'captured_at' => now()->toISOString(),
             ])
             ->assertCreated()
             ->assertJsonPath('duplicate', false)
@@ -194,6 +329,14 @@ class TrackerHeartbeatTest extends TestCase
 
         $this->assertDatabaseCount('gps_locations', 1);
         $this->assertFalse(Device::first()->is_online);
+        $this->assertSame(
+            'unreachable',
+            Device::first()->availability_status
+        );
+        $this->assertSame(
+            $lastHeartbeatAt,
+            Device::first()->getRawOriginal('last_heartbeat_at')
+        );
     }
 
     public function test_fresh_legacy_gps_remains_connectivity_evidence(): void
@@ -216,14 +359,14 @@ class TrackerHeartbeatTest extends TestCase
     {
         $this->heartbeat([
             'sent_at' => now()
-                ->subSeconds(90)
+                ->subSeconds(60)
                 ->format('Y-m-d\TH:i:sP'),
         ])
             ->assertOk()
             ->assertJsonPath('ignored', false);
 
         $this->assertSame(
-            now('UTC')->subSeconds(90)->format('Y-m-d H:i:s'),
+            now('UTC')->subSeconds(60)->format('Y-m-d H:i:s'),
             Device::first()->getRawOriginal('last_heartbeat_at')
         );
 

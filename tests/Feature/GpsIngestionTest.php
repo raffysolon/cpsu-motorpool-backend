@@ -193,6 +193,10 @@ class GpsIngestionTest extends TestCase
 
             $this->assertFalse(Device::first()->is_online);
             $this->assertNull(Device::first()->last_seen);
+            $this->assertSame(
+                'unreachable',
+                Device::first()->availability_status
+            );
         }
     }
 
@@ -209,6 +213,10 @@ class GpsIngestionTest extends TestCase
             ->assertCreated();
 
         $this->assertTrue(Device::first()->is_online);
+        $this->assertSame(
+            'unreachable',
+            Device::first()->availability_status
+        );
 
         $original = GpsLocation::first()->getAttributes();
 
@@ -225,6 +233,10 @@ class GpsIngestionTest extends TestCase
             ->assertJsonPath('duplicate', true);
 
         $this->assertFalse(Device::first()->is_online);
+        $this->assertSame(
+            'unreachable',
+            Device::first()->availability_status
+        );
 
         $this->assertSame(
             $lastSeen,
@@ -248,6 +260,10 @@ class GpsIngestionTest extends TestCase
             ->assertCreated();
 
         $this->assertFalse(Device::first()->is_online);
+        $this->assertSame(
+            'unreachable',
+            Device::first()->availability_status
+        );
 
         unset($payload['captured_at']);
 
@@ -416,5 +432,9 @@ class GpsIngestionTest extends TestCase
         );
 
         $this->assertFalse(Device::first()->is_online);
+        $this->assertSame(
+            'unreachable',
+            Device::first()->availability_status
+        );
     }
 }
