@@ -15,8 +15,8 @@ class GpsLocationController extends Controller
     {
         $validated = $request->validate([
             'device_id' => 'required|string|max:100',
-            'record_id' => 'nullable|required_with:device_sequence|string|max:150|regex:/^[A-Za-z0-9_-]+$/',
-            'device_sequence' => 'nullable|integer|min:1|max:9223372036854775807',
+            'record_id' => 'nullable|required_with:device_sequence|required_if:upload_source,recovered_lte,recovered_lora|string|max:150|regex:/^[A-Za-z0-9_-]+$/',
+            'device_sequence' => 'nullable|required_if:upload_source,recovered_lte,recovered_lora|integer|min:1|max:9223372036854775807',
             'captured_at' => 'nullable|required_with:upload_source|date',
             'upload_source' => 'nullable|in:live_lte,recovered_lte,recovered_lora',
             'latitude' => 'required|numeric|between:-90,90',
@@ -24,10 +24,14 @@ class GpsLocationController extends Controller
             'satellites' => 'nullable|integer|min:0|max:255',
         ]);
 
-        // Match the database's seven decimal places before insert and comparison.
+        // Match database coordinate precision before insertion.
         foreach (['latitude', 'longitude'] as $coordinate) {
-            $validated[$coordinate] = round((float) $validated[$coordinate], 7);
+            $validated[$coordinate] = round(
+                (float) $validated[$coordinate],
+                7
+            );
         }
+
         foreach (['device_sequence', 'satellites'] as $integer) {
             if (isset($validated[$integer])) {
                 $validated[$integer] = (int) $validated[$integer];
@@ -56,12 +60,12 @@ class GpsLocationController extends Controller
             ], 422);
         }
 
-        // Convert incoming GPS capture timestamps to UTC.
+        // Preserve the original GPS capture timestamp in UTC.
         $captured = isset($validated['captured_at'])
             ? Carbon::parse($validated['captured_at'])->utc()
             : null;
 
-        // Reject future timestamps while allowing historical offline GPS records.
+        // Allow historical records but reject invalid future timestamps.
         if (
             $captured &&
             $captured->greaterThan(now()->addMinutes(5))
@@ -82,12 +86,12 @@ class GpsLocationController extends Controller
             &$created,
             &$conflict
         ) {
-            // Generate a UTC timestamp for the current request.
             $utcNow = now('UTC')->format('Y-m-d H:i:s');
 
             if ($recordId !== null) {
 
-                // Insert only if the unique record ID does not already exist.
+                // Database uniqueness protects both record IDs
+                // and device sequences against concurrent uploads.
                 $inserted = GpsLocation::query()->insertOrIgnore([
                     'record_id' => $recordId,
                     'device_sequence' => $validated['device_sequence'] ?? null,
@@ -108,12 +112,19 @@ class GpsLocationController extends Controller
                 $location = GpsLocation::where(
                     'record_id',
                     $recordId
-                )->firstOrFail();
+                )->first();
+
+                // An ignored insert without a matching record ID
+                // indicates a conflicting unique key.
+                if ($location === null) {
+                    $conflict = true;
+
+                    return null;
+                }
 
                 $created = $inserted === 1;
 
-                // Compare saved and incoming data.
-                // Interpret stored GPS timestamps as UTC.
+                // Verify that a retransmission contains the same GPS data.
                 $conflict =
                     (int) $location->device_registry_id !== (int) $device->id
                     || round((float) $location->latitude, 7) !== $validated['latitude']
@@ -130,7 +141,7 @@ class GpsLocationController extends Controller
 
             } else {
 
-                // Maintain compatibility with existing GPS firmware.
+                // Preserve compatibility with existing GPS firmware.
                 $location = GpsLocation::create([
                     'device_registry_id' => $device->id,
                     'vehicle_id' => $device->vehicle_id,
@@ -149,15 +160,21 @@ class GpsLocationController extends Controller
                 $created = true;
             }
 
-            // Replays and recovered samples are not evidence of current connectivity.
-            // Legacy firmware without capture time retains its existing behavior.
+            // Recovered records and duplicate uploads must not
+            // incorrectly indicate current tracker connectivity.
             $source = $validated['upload_source'] ?? null;
+
             $fresh = $captured === null || (
                 $captured->gte(now('UTC')->subMinutes(5))
                 && $captured->lte(now('UTC'))
             );
-            if (!$conflict && $created && $fresh
-                && ($source === null || $source === 'live_lte')) {
+
+            if (
+                !$conflict &&
+                $created &&
+                $fresh &&
+                ($source === null || $source === 'live_lte')
+            ) {
                 $device->update([
                     'last_seen' => now(),
                     'is_online' => true,
@@ -169,7 +186,7 @@ class GpsLocationController extends Controller
 
         if ($conflict) {
             return response()->json([
-                'message' => 'Record ID already exists with different GPS data.',
+                'message' => 'Record ID or device sequence already exists with conflicting GPS data.',
             ], 409);
         }
 
@@ -180,7 +197,6 @@ class GpsLocationController extends Controller
             'location' => $location,
         ], $recordId !== null && !$created ? 200 : 201);
     }
-
 
     public function latest(int $vehicle_id)
     {
@@ -216,7 +232,11 @@ class GpsLocationController extends Controller
                 'scheduled_departure' => $scheduled->toISOString(),
                 'actual_departure_at' => $movement?->actual_departure_at?->toISOString(),
                 'late_minutes' => $movement?->late_minutes,
-                'departure_overdue' => in_array($trip->status, ['approved', 'scheduled'], true)
+                'departure_overdue' => in_array(
+                    $trip->status,
+                    ['approved', 'scheduled'],
+                    true
+                )
                     && !$movement?->actual_departure_at
                     && $scheduled->copy()->addMinutes(5)->lte(now()),
             ];
