@@ -10,14 +10,7 @@ class UserSeeder extends Seeder
 {
     public function run(): void
     {
-        User::firstOrCreate(
-            ['email' => 'admin@cpsu.edu.ph'],
-            [
-                'name' => 'Admin User',
-                'password' => Hash::make('Raffy145'),
-                'role' => 'admin',
-            ]
-        );
+        // Admin accounts are managed explicitly; do not recreate a default login.
 
         User::firstOrCreate(
             ['email' => 'maria.santos@cpsu.edu.ph'],

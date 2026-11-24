@@ -14,7 +14,7 @@
                         <td style="padding:32px;">
                             <p style="margin:0 0 8px;color:#1F8A3D;font-size:13px;font-weight:bold;letter-spacing:1px;">CPSU MOTOR POOL</p>
                             <h1 style="margin:0 0 16px;font-size:24px;">Reset your password</h1>
-                            <p style="line-height:1.6;">Hello {{ $name }}, we received a request to reset the password for your driver account.</p>
+                            <p style="line-height:1.6;">Hello {{ $name }}, we received a request to reset the password for your CPSU Motor Pool account.</p>
                             <p style="margin:28px 0;">
                                 <a href="{{ $url }}" style="display:inline-block;padding:14px 22px;border-radius:10px;background:#1F8A3D;color:#fff;text-decoration:none;font-weight:bold;">Choose a new password</a>
                             </p>
