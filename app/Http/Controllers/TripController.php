@@ -11,6 +11,8 @@ use App\Models\Vehicle;
 use App\Models\CoordinatorAssignment;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\DB;
+use App\Services\TripDepartureMonitor;
 
 class TripController extends Controller
 {
@@ -432,6 +434,8 @@ class TripController extends Controller
 
     public function start(Request $request, Trip $trip)
     {
+        return DB::transaction(function () use ($request, $trip) {
+        $trip = Trip::lockForUpdate()->findOrFail($trip->id);
         $this->authorizeDriverTrip($request, $trip);
         $location = $this->validateLocation($request);
         $this->ensureMovements($trip);
@@ -466,13 +470,18 @@ class TripController extends Controller
             $message = 'Trip started 10 minutes before the scheduled departure time.';
         } elseif ($startedLate) {
             $startTiming = 'late';
-            $message = 'Trip started late after the scheduled departure time.';
+            $minutes = $movement->late_minutes;
+            $duration = $minutes > 0 ? "{$minutes} minute(s)" : 'less than 1 minute';
+            $message = "Trip started {$duration} late.";
         }
 
+        $lateMinutes = $movement->late_minutes;
+        $lateDuration = $lateMinutes > 0 ? "{$lateMinutes} minute(s)" : 'less than 1 minute';
+        $deviceLabel = app(TripDepartureMonitor::class)->deviceLabel($trip);
         $driverName = $request->user()->name ?: 'Driver';
         $adminMessage = match ($startTiming) {
             'early' => "{$driverName} started the trip early, 10 minutes before the scheduled departure.",
-            'late' => "{$driverName} started the trip late after the scheduled departure.",
+            'late' => "{$deviceLabel}: {$driverName} started trip #{$trip->id} {$lateDuration} late.",
             default => "{$driverName} started the trip on time.",
         };
 
@@ -488,8 +497,10 @@ class TripController extends Controller
         return response()->json([
             'message' => $message,
             'start_timing' => $startTiming,
+            'late_minutes' => $lateMinutes,
             'trip' => $trip->fresh()->load('movements'),
         ]);
+        });
     }
 
     public function end(Request $request, Trip $trip)

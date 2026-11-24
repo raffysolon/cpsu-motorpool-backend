@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Device;
 use App\Models\GpsLocation;
+use App\Models\Trip;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -163,21 +164,60 @@ class GpsLocationController extends Controller
         ], $recordId !== null && !$created ? 200 : 201);
     }
 
+
     public function latest(int $vehicle_id)
     {
-        $location = GpsLocation::where(
-            'vehicle_id',
-            $vehicle_id
-        )
+        $location = GpsLocation::where('vehicle_id', $vehicle_id)
             ->orderByDesc('recorded_at')
             ->orderByDesc('id')
             ->first();
 
-        return $location
-            ? response()->json($location)
-            : response()->json([
+        if (!$location) {
+            return response()->json([
                 'message' => 'No GPS location found.',
             ], 404);
+        }
+
+        $trip = Trip::with('movements')
+            ->where('vehicle_id', $vehicle_id)
+            ->whereIn('status', ['approved', 'scheduled', 'active'])
+            ->orderByRaw("CASE WHEN status = 'active' THEN 0 ELSE 1 END")
+            ->orderBy('scheduled_departure')
+            ->first();
+
+        $context = null;
+
+        if ($trip) {
+            $movement = $trip->movements->firstWhere('movement_no', 1);
+
+            $scheduled = $movement?->scheduled_departure
+                ?? Carbon::parse($trip->scheduled_departure);
+
+            $context = [
+                'id' => $trip->id,
+                'status' => $trip->effective_status,
+                'scheduled_departure' => $scheduled->toISOString(),
+                'actual_departure_at' => $movement?->actual_departure_at?->toISOString(),
+                'late_minutes' => $movement?->late_minutes,
+                'departure_overdue' => in_array($trip->status, ['approved', 'scheduled'], true)
+                    && !$movement?->actual_departure_at
+                    && $scheduled->copy()->addMinutes(5)->lte(now()),
+            ];
+        }
+
+        return response()->json(
+            array_merge($location->toArray(), ['trip' => $context])
+        );
+    }
+
+    public function syncLogs()
+    {
+        return response()->json(
+            GpsLocation::with('device:id,device_id')
+                ->orderByDesc('recorded_at')
+                ->orderByDesc('id')
+                ->paginate(50)
+        );
     }
 
     public function history(int $vehicle_id)

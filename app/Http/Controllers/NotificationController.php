@@ -9,6 +9,9 @@ class NotificationController extends Controller
 {
     public function index(Request $request)
     {
+        if ($request->user()->role === 'admin') {
+            app(\App\Services\TripDepartureMonitor::class)->check();
+        }
         $notifications = Notification::with('trip')
             ->where('user_id', $request->user()->id)
             ->latest()
@@ -32,6 +35,9 @@ class NotificationController extends Controller
 
     public function unreadCount(Request $request)
     {
+        if ($request->user()->role === 'admin') {
+            app(\App\Services\TripDepartureMonitor::class)->check();
+        }
         $count = Notification::where('user_id', $request->user()->id)
             ->where('is_read', false)
             ->count();
