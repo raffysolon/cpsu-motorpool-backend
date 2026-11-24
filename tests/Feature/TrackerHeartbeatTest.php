@@ -6,6 +6,7 @@ use App\Models\Device;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Services\TrackerHeartbeatMonitor;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -199,6 +200,9 @@ class TrackerHeartbeatTest extends TestCase
         $accepted = Device::firstOrFail();
         $storedHeartbeat = $accepted->getRawOriginal('last_heartbeat_at');
         $storedLastSeen = $accepted->getRawOriginal('last_seen');
+        $storedReceivedAt = $accepted->getRawOriginal(
+            'last_heartbeat_received_at'
+        );
 
         $this->travel(10)->seconds();
 
@@ -221,6 +225,10 @@ class TrackerHeartbeatTest extends TestCase
             $storedLastSeen,
             Device::firstOrFail()->getRawOriginal('last_seen')
         );
+        $this->assertSame(
+            $storedReceivedAt,
+            Device::firstOrFail()->getRawOriginal('last_heartbeat_received_at')
+        );
 
         $this->travel(21)->seconds();
 
@@ -228,6 +236,81 @@ class TrackerHeartbeatTest extends TestCase
             ->assertOk()
             ->assertJsonPath('ignored', false)
             ->assertJsonPath('availability_status', 'online');
+    }
+
+    public function test_future_sender_time_does_not_extend_availability_past_server_receipt_time(): void
+    {
+        $this->heartbeat([
+            'sent_at' => now('UTC')->addSeconds(30)->format('Y-m-d\TH:i:s\Z'),
+        ])->assertOk();
+
+        $device = Device::firstOrFail();
+        $this->assertSame(
+            now('UTC')->format('Y-m-d H:i:s'),
+            $device->getRawOriginal('last_heartbeat_received_at')
+        );
+        $this->assertSame(
+            now('UTC')->addSeconds(30)->format('Y-m-d H:i:s'),
+            $device->getRawOriginal('last_heartbeat_at')
+        );
+
+        $this->travel(61)->seconds();
+
+        $this->assertSame('unstable', $device->fresh()->availability_status);
+
+        $this->travel(60)->seconds();
+
+        $this->assertSame('unreachable', $device->fresh()->availability_status);
+    }
+
+    public function test_delayed_sender_time_does_not_become_fresh_at_server_receipt(): void
+    {
+        $device = Device::firstOrFail();
+        $device->forceFill([
+            'last_heartbeat_at' => now('UTC')
+                ->subSeconds(90)
+                ->format('Y-m-d H:i:s'),
+            'last_heartbeat_received_at' => now('UTC')
+                ->format('Y-m-d H:i:s'),
+        ])->save();
+
+        $this->assertSame('unstable', $device->fresh()->availability_status);
+
+        $this->travel(31)->seconds();
+
+        $this->assertSame('unreachable', $device->fresh()->availability_status);
+    }
+
+    public function test_last_seen_and_utc_heartbeat_serialize_to_the_same_philippine_instant(): void
+    {
+        config(['app.timezone' => 'Asia/Manila']);
+        $device = Device::firstOrFail();
+        $device->forceFill([
+            'last_seen' => Carbon::parse('2026-11-24 20:33:00', 'Asia/Manila'),
+            'last_heartbeat_at' => '2026-11-24 12:33:00',
+            'last_heartbeat_received_at' => '2026-11-24 12:33:00',
+        ])->save();
+
+        $serialized = $device->fresh()->toArray();
+        $lastSeen = Carbon::parse($serialized['last_seen']);
+        $heartbeatReceived = Carbon::parse(
+            $serialized['last_heartbeat_received_at'],
+            'UTC'
+        );
+
+        $this->assertSame(
+            '2026-11-24 20:33:00',
+            $device->fresh()->getRawOriginal('last_seen')
+        );
+        $this->assertSame(
+            $heartbeatReceived->getTimestamp(),
+            $lastSeen->getTimestamp()
+        );
+        $this->assertSame(20, $lastSeen->copy()->timezone('Asia/Manila')->hour);
+        $this->assertSame(
+            '2026-11-24 12:33:00',
+            $device->fresh()->getRawOriginal('last_heartbeat_at')
+        );
     }
 
     public function test_device_api_adds_availability_and_preserves_existing_fields_and_hidden_hash(): void

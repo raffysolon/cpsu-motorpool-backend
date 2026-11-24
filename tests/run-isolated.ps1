@@ -1,3 +1,4 @@
+param([string[]]$TestPath = @())
 $ErrorActionPreference = 'Stop'
 $phpBinary = (Get-Command php -ErrorAction Stop).Source
 $extensionPath = Join-Path (Split-Path $phpBinary) 'ext'
@@ -6,7 +7,8 @@ Push-Location (Split-Path $PSScriptRoot)
 try {
     & $phpBinary @phpOptions tests/check-isolation.php
     if ($LASTEXITCODE -ne 0) { throw 'Isolation check failed; tests were not started.' }
-    & $phpBinary @phpOptions vendor/phpunit/phpunit/phpunit --configuration phpunit.xml
+    $phpunitArguments = @('--configuration', 'phpunit.xml') + $TestPath
+    & $phpBinary @phpOptions vendor/phpunit/phpunit/phpunit @phpunitArguments
     $testExitCode = $LASTEXITCODE
 } finally { Pop-Location }
 exit $testExitCode

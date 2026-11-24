@@ -31,6 +31,7 @@ class TrackerHeartbeatController extends Controller
             $ignored = $previous !== null && $sent->lte(Carbon::parse($previous, 'UTC'));
             if (!$ignored) {
                 $device->last_heartbeat_at = $sent->format('Y-m-d H:i:s');
+                $device->last_heartbeat_received_at = now('UTC')->format('Y-m-d H:i:s');
                 $device->last_seen = now();
                 $device->is_online = true;
                 $device->save();
@@ -42,6 +43,7 @@ class TrackerHeartbeatController extends Controller
                 'acknowledged_sent_at' => $sent->toISOString(),
                 'ignored' => $ignored,
                 'is_online' => $device->is_online,
+                'last_heartbeat_received_at' => $device->getRawOriginal('last_heartbeat_received_at'),
                 'availability_status' => $device->availability_status,
             ]);
         });

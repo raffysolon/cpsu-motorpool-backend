@@ -75,6 +75,11 @@ class GpsLocationController extends Controller
             ], 422);
         }
 
+        $fresh = $captured === null || (
+            $captured->gte(now('UTC')->subMinutes(5))
+            && $captured->lte(now('UTC'))
+        );
+
         $created = false;
         $conflict = false;
 
@@ -83,6 +88,7 @@ class GpsLocationController extends Controller
             $validated,
             $recordId,
             $captured,
+            $fresh,
             &$created,
             &$conflict
         ) {
@@ -164,11 +170,6 @@ class GpsLocationController extends Controller
             // incorrectly indicate current tracker connectivity.
             $source = $validated['upload_source'] ?? null;
 
-            $fresh = $captured === null || (
-                $captured->gte(now('UTC')->subMinutes(5))
-                && $captured->lte(now('UTC'))
-            );
-
             if (
                 !$conflict &&
                 $created &&
@@ -188,6 +189,14 @@ class GpsLocationController extends Controller
             return response()->json([
                 'message' => 'Record ID or device sequence already exists with conflicting GPS data.',
             ], 409);
+        }
+
+        if (
+            $created &&
+            $fresh &&
+            in_array($validated['upload_source'] ?? null, [null, 'live_lte'], true)
+        ) {
+            app(\App\Services\VehicleMovementMonitor::class)->observe($location);
         }
 
         return response()->json([

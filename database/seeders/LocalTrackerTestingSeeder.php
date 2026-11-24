@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\Trip;
 use App\Models\User;
 use App\Models\Vehicle;
 use Illuminate\Database\Seeder;
@@ -98,6 +99,9 @@ class LocalTrackerTestingSeeder extends Seeder
                 ],
             ];
 
+            $driver = User::where('email', $driverEmail)->firstOrFail();
+            $onlineVehicle = null;
+            $onlineDeviceId = null;
             foreach ($trackers as $tracker) {
                 $vehicle = Vehicle::updateOrCreate(
                     ['plate_no' => $tracker['plate_no']],
@@ -115,16 +119,22 @@ class LocalTrackerTestingSeeder extends Seeder
                         ? $now->format('Y-m-d H:i:s')
                         : $existingDevice->created_at;
                 $heartbeatAt = $utcNow->copy()->subSeconds($tracker['heartbeat_age']);
+                $lastSeenAt = $now->copy()->subSeconds($tracker['heartbeat_age']);
+                if ($tracker['device_id'] === 'LOCAL-ONLINE') {
+                    $onlineVehicle = $vehicle;
+                    $onlineDeviceId = $tracker['device_id'];
+                }
 
                 DB::table('device_registry')->updateOrInsert(
                     ['device_id' => $tracker['device_id']],
                     [
                         'vehicle_id' => $vehicle->id,
                         'vehicle_plate' => $vehicle->plate_no,
-                        'last_seen' => $now->format('Y-m-d H:i:s'),
-                        'is_online' => true,
+                        'last_seen' => $lastSeenAt->format('Y-m-d H:i:s'),
+                        'is_online' => $tracker['heartbeat_age'] < 300,
                         'registered_at' => $registeredAt,
                         'last_heartbeat_at' => $heartbeatAt->format('Y-m-d H:i:s'),
+                        'last_heartbeat_received_at' => $heartbeatAt->format('Y-m-d H:i:s'),
                         'updated_at' => $now->format('Y-m-d H:i:s'),
                         'created_at' => $createdAt,
                     ]
@@ -151,6 +161,54 @@ class LocalTrackerTestingSeeder extends Seeder
                         'created_at' => $utcNow->format('Y-m-d H:i:s'),
                     ]
                 );
+            }
+
+            if ($onlineVehicle !== null && $onlineDeviceId !== null) {
+                $trip = Trip::firstOrCreate([
+                    'driver_id' => $driver->id,
+                    'vehicle_id' => $onlineVehicle->id,
+                    'purpose' => 'Local movement monitoring scenario',
+                ], [
+                    'origin' => 'CPSU Campus',
+                    'destination' => 'Local Test Route',
+                    'scheduled_departure' => $now->copy()->addHour(),
+                    'status' => 'approved',
+                    'source' => 'local-testing',
+                ]);
+                $trip->movements()->firstOrCreate([
+                    'movement_no' => 1,
+                ], [
+                    'origin' => 'CPSU Campus',
+                    'destination' => 'Local Test Route',
+                    'scheduled_departure' => $trip->scheduled_departure,
+                    'status' => 'scheduled',
+                ]);
+
+                $deviceRegistryId = DB::table('device_registry')
+                    ->where('device_id', $onlineDeviceId)
+                    ->value('id');
+                $baseLatitude = 10.6713;
+                $baseLongitude = 122.9511;
+                foreach ([0, 1, 2, 3] as $step) {
+                    $recordedAt = $utcNow->copy()->subSeconds(45 - ($step * 15));
+                    $recordId = $onlineDeviceId.'-'.($step + 1);
+                    DB::table('gps_locations')->updateOrInsert(
+                        ['record_id' => $recordId],
+                        [
+                            'device_registry_id' => $deviceRegistryId,
+                            'vehicle_id' => $onlineVehicle->id,
+                            'latitude' => $baseLatitude,
+                            'longitude' => $baseLongitude + ($step * 0.00023),
+                            'satellites' => 8,
+                            'recorded_at' => $recordedAt->format('Y-m-d H:i:s'),
+                            'device_sequence' => $step + 1,
+                            'received_at' => $utcNow->format('Y-m-d H:i:s'),
+                            'upload_source' => 'live_lte',
+                            'updated_at' => $utcNow->format('Y-m-d H:i:s'),
+                            'created_at' => $utcNow->format('Y-m-d H:i:s'),
+                        ]
+                    );
+                }
             }
         });
 

@@ -20,3 +20,10 @@ Artisan::command('trackers:check-heartbeats', function () {
 })->purpose('Mark trackers offline after the connectivity timeout');
 
 Schedule::command('trackers:check-heartbeats')->everyMinute()->withoutOverlapping();
+
+Artisan::command('trackers:check-movement', function () {
+    $count = app(\App\Services\VehicleMovementMonitor::class)->checkRecent();
+    $this->info("Processed {$count} fresh live GPS fixes.");
+})->purpose('Check fresh GPS fixes for sustained vehicle movement');
+
+Schedule::command('trackers:check-movement')->everyMinute()->withoutOverlapping();

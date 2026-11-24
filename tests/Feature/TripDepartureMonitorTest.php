@@ -34,6 +34,7 @@ class TripDepartureMonitorTest extends TestCase
         $trip = Trip::create(['driver_id' => $driver->id, 'vehicle_id' => $vehicle->id,
             'origin' => 'Campus', 'destination' => 'Office', 'purpose' => 'Test',
             'scheduled_departure' => '2026-11-18 09:00:00', 'status' => 'approved']);
+
         return [$admin, $driver, $vehicle, $device, $trip];
     }
 
@@ -49,9 +50,10 @@ class TripDepartureMonitorTest extends TestCase
         $notification = Notification::firstOrFail();
         $this->assertSame($admin->id, $notification->user_id);
         $this->assertStringContainsString("Device 2 hasn't started trip #{$trip->id} yet", $notification->message);
+        $this->assertDatabaseCount('notifications', 2);
         $notification->update(['is_read' => true]);
         $monitor->check();
-        $this->assertDatabaseCount('notifications', 1);
+        $this->assertDatabaseCount('notifications', 2);
         $this->assertTrue($notification->fresh()->is_read);
     }
 
@@ -122,14 +124,49 @@ class TripDepartureMonitorTest extends TestCase
         [, , , , $trip] = $this->fleet();
         $monitor = app(TripDepartureMonitor::class);
         $monitor->check();
-        $this->assertDatabaseCount('notifications', 1);
+        $this->assertDatabaseCount('notifications', 2);
         $trip->update(['scheduled_departure' => '2026-11-18 10:00:00']);
         $monitor->check();
-        $this->assertDatabaseCount('notifications', 1);
+        $this->assertDatabaseCount('notifications', 2);
         Carbon::setTestNow(Carbon::parse('2026-11-18 10:05:00', 'Asia/Manila'));
         $monitor->check();
         $monitor->check();
+        $this->assertDatabaseCount('notifications', 4);
+    }
+
+    public function test_unreachable_tracker_near_departure_notifies_driver_and_admin_once(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-11-18 08:55:00', 'Asia/Manila'));
+        [$admin, $driver, , , $trip] = $this->fleet();
+        $trip->update(['scheduled_departure' => now()->addMinutes(5)]);
+
+        $monitor = app(TripDepartureMonitor::class);
+        $monitor->check();
+        $monitor->check();
+
         $this->assertDatabaseCount('notifications', 2);
+        $this->assertEqualsCanonicalizing(
+            [$admin->id, $driver->id],
+            Notification::pluck('user_id')->all()
+        );
+        $this->assertTrue(
+            Notification::where('message', 'like', '%no recent heartbeat%')->exists()
+        );
+    }
+
+    public function test_tracker_recovery_suppresses_near_departure_connectivity_warning(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-11-18 08:55:00', 'Asia/Manila'));
+        [, , , $device, $trip] = $this->fleet();
+        $trip->update(['scheduled_departure' => now()->addMinutes(5)]);
+        $device->forceFill([
+            'last_heartbeat_at' => now('UTC')->format('Y-m-d H:i:s'),
+            'last_heartbeat_received_at' => now('UTC')->format('Y-m-d H:i:s'),
+        ])->save();
+
+        app(TripDepartureMonitor::class)->check();
+
+        $this->assertDatabaseCount('notifications', 0);
     }
 
     public function test_sync_logs_require_an_authenticated_admin(): void

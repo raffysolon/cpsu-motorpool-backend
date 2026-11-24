@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true, Position = 0)]
-    [ValidateSet('initialize', 'verify', 'migrate', 'seed', 'serve')]
+    [ValidateSet('initialize', 'verify', 'migrate', 'seed', 'scenarios', 'check-movement', 'serve')]
     [string] $Action,
     [switch] $ProbeMissingEnvironment
 )
@@ -239,6 +239,14 @@ switch ($Action) {
     }
     'seed' {
         & $phpBinary @phpOptions 'artisan' 'db:seed' '--env=local-testing' '--database=sqlite' '--class=Database\Seeders\LocalTrackerTestingSeeder'
+        exit $LASTEXITCODE
+    }
+    'scenarios' {
+        & $phpBinary @phpOptions 'artisan' 'db:seed' '--env=local-testing' '--database=sqlite' '--class=Database\Seeders\LocalMonitoringScenariosSeeder'
+        exit $LASTEXITCODE
+    }
+    'check-movement' {
+        & $phpBinary @phpOptions 'artisan' 'trackers:check-movement' '--env=local-testing'
         exit $LASTEXITCODE
     }
     'serve' {

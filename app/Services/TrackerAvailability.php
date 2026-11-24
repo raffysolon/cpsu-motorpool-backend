@@ -6,16 +6,24 @@ use Carbon\Carbon;
 
 class TrackerAvailability
 {
-    public function status(?string $lastHeartbeatAt): string
-    {
-        if ($lastHeartbeatAt === null || $lastHeartbeatAt === '') {
+    public function status(
+        ?string $senderTimestamp,
+        ?string $receivedTimestamp = null
+    ): string {
+        if ($senderTimestamp === null || $senderTimestamp === '') {
             return 'unreachable';
         }
 
-        $heartbeatAt = Carbon::parse($lastHeartbeatAt, 'UTC');
+        $senderAt = Carbon::parse($senderTimestamp, 'UTC');
+        $receivedAt = $receivedTimestamp === null || $receivedTimestamp === ''
+            ? $senderAt
+            : Carbon::parse($receivedTimestamp, 'UTC');
+        $freshnessAt = $senderAt->lessThan($receivedAt)
+            ? $senderAt
+            : $receivedAt;
         $ageSeconds = max(
             0,
-            now('UTC')->getTimestamp() - $heartbeatAt->getTimestamp()
+            now('UTC')->getTimestamp() - $freshnessAt->getTimestamp()
         );
 
         if ($ageSeconds <= (int) config('tracking.online_threshold_seconds')) {

@@ -42,10 +42,13 @@ class Device extends Model
 
     public function getAvailabilityStatusAttribute(): string
     {
-        $lastHeartbeatAt = $this->getAttributes()['last_heartbeat_at'] ?? null;
+        $attributes = $this->getAttributes();
+        $senderTimestamp = $attributes['last_heartbeat_at'] ?? null;
+        $receivedTimestamp = $attributes['last_heartbeat_received_at'] ?? null;
 
         return app(TrackerAvailability::class)->status(
-            is_string($lastHeartbeatAt) ? $lastHeartbeatAt : null
+            is_string($senderTimestamp) ? $senderTimestamp : null,
+            is_string($receivedTimestamp) ? $receivedTimestamp : null
         );
     }
 }
