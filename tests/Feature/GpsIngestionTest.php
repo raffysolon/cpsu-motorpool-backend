@@ -15,8 +15,13 @@ class GpsIngestionTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        config(['services.gateway.api_key' => 'test-only']);
-        $this->withHeader('X-Gateway-Key', 'test-only');
+        config([
+            'services.gateway.api_key' => 'test-gateway',
+            'services.tracker_legacy.api_key' => 'test-legacy',
+            'tracking.legacy_auth_enabled' => true,
+            'tracking.legacy_device_id' => 'VEHICLE-01',
+        ]);
+        $this->withHeader('X-Gateway-Key', 'test-legacy');
 
         $vehicle = Vehicle::create([
             'name' => 'Test',
@@ -44,9 +49,19 @@ class GpsIngestionTest extends TestCase
         ];
     }
 
+    private function gps(array $payload)
+    {
+        $key = ($payload['upload_source'] ?? null) === 'recovered_lora'
+            ? 'test-gateway'
+            : 'test-legacy';
+
+        return $this->withHeader('X-Gateway-Key', $key)
+            ->postJson('/api/gps/location', $payload);
+    }
+
     public function test_identical_retry_preserves_record_and_receipt(): void
     {
-        $this->postJson('/api/gps/location', $this->payload())
+        $this->gps($this->payload())
             ->assertCreated()
             ->assertJsonPath('duplicate', false);
 
@@ -58,7 +73,7 @@ class GpsIngestionTest extends TestCase
         $retry['captured_at'] = '2026-01-01T08:00:00.999+08:00';
         $retry['latitude'] += 0.00000001;
 
-        $this->postJson('/api/gps/location', $retry)
+        $this->gps($retry)
             ->assertOk()
             ->assertJsonPath('duplicate', true)
             ->assertJsonPath('acknowledged_record_id', 'VEHICLE-01-1');
@@ -72,7 +87,7 @@ class GpsIngestionTest extends TestCase
 
     public function test_conflicting_retries_do_not_change_saved_data_or_device(): void
     {
-        $this->postJson('/api/gps/location', $this->payload())
+        $this->gps($this->payload())
             ->assertCreated();
 
         $original = GpsLocation::first()->getAttributes();
@@ -87,16 +102,14 @@ class GpsIngestionTest extends TestCase
             'longitude' => 123.4762131,
             'captured_at' => '2026-01-01T00:00:01Z',
         ] as $key => $value) {
-            $this->postJson(
-                '/api/gps/location',
-                array_replace($this->payload(), [$key => $value])
-            )->assertStatus(409);
+            $this->gps(array_replace($this->payload(), [$key => $value]))
+                ->assertStatus(409);
         }
 
         $retry = $this->payload();
         unset($retry['satellites']);
 
-        $this->postJson('/api/gps/location', $retry)
+        $this->gps($retry)
             ->assertStatus(409);
 
         $this->assertSame(
@@ -136,7 +149,7 @@ class GpsIngestionTest extends TestCase
         $this->assertDatabaseCount('gps_locations', 0);
     }
 
-    public function test_legacy_payload_and_gateway_authentication(): void
+    public function test_legacy_payload_and_legacy_authentication(): void
     {
         $payload = $this->payload();
 
@@ -152,7 +165,7 @@ class GpsIngestionTest extends TestCase
 
         $this->assertDatabaseCount('gps_locations', 0);
 
-        $this->withHeader('X-Gateway-Key', 'test-only')
+        $this->withHeader('X-Gateway-Key', 'test-legacy')
             ->postJson('/api/gps/location', $payload)
             ->assertCreated()
             ->assertJsonPath('acknowledged_record_id', null);
@@ -174,7 +187,7 @@ class GpsIngestionTest extends TestCase
                 'upload_source' => $source,
             ]);
 
-            $this->postJson('/api/gps/location', $payload)
+            $this->gps($payload)
                 ->assertCreated()
                 ->assertJsonPath('location.upload_source', $source);
 
@@ -192,7 +205,7 @@ class GpsIngestionTest extends TestCase
             'upload_source' => 'live_lte',
         ]);
 
-        $this->postJson('/api/gps/location', $payload)
+        $this->gps($payload)
             ->assertCreated();
 
         $this->assertTrue(Device::first()->is_online);
@@ -207,7 +220,7 @@ class GpsIngestionTest extends TestCase
 
         $payload['upload_source'] = 'recovered_lora';
 
-        $this->postJson('/api/gps/location', $payload)
+        $this->gps($payload)
             ->assertOk()
             ->assertJsonPath('duplicate', true);
 
@@ -231,14 +244,14 @@ class GpsIngestionTest extends TestCase
             'upload_source' => 'recovered_lte',
         ]);
 
-        $this->postJson('/api/gps/location', $payload)
+        $this->gps($payload)
             ->assertCreated();
 
         $this->assertFalse(Device::first()->is_online);
 
         unset($payload['captured_at']);
 
-        $this->postJson('/api/gps/location', $payload)
+        $this->gps($payload)
             ->assertUnprocessable();
 
         $payload['upload_source'] = 'invalid';
@@ -257,14 +270,14 @@ class GpsIngestionTest extends TestCase
             $missingRecordId = $payload;
             unset($missingRecordId['record_id']);
 
-            $this->postJson('/api/gps/location', $missingRecordId)
+            $this->gps($missingRecordId)
                 ->assertUnprocessable()
                 ->assertJsonValidationErrors(['record_id']);
 
             $missingSequence = $payload;
             unset($missingSequence['device_sequence']);
 
-            $this->postJson('/api/gps/location', $missingSequence)
+            $this->gps($missingSequence)
                 ->assertUnprocessable()
                 ->assertJsonValidationErrors(['device_sequence']);
 
@@ -275,7 +288,7 @@ class GpsIngestionTest extends TestCase
                 $missingBoth['device_sequence']
             );
 
-            $this->postJson('/api/gps/location', $missingBoth)
+            $this->gps($missingBoth)
                 ->assertUnprocessable()
                 ->assertJsonValidationErrors([
                     'record_id',
@@ -292,7 +305,7 @@ class GpsIngestionTest extends TestCase
             'upload_source' => 'recovered_lte',
         ]);
 
-        $this->postJson('/api/gps/location', $payload)
+        $this->gps($payload)
             ->assertCreated();
 
         $original = GpsLocation::first()->getAttributes();
@@ -303,7 +316,7 @@ class GpsIngestionTest extends TestCase
             'upload_source' => 'recovered_lora',
         ]);
 
-        $this->postJson('/api/gps/location', $conflicting)
+        $this->gps($conflicting)
             ->assertStatus(409);
 
         $this->assertDatabaseCount('gps_locations', 1);
@@ -320,7 +333,7 @@ class GpsIngestionTest extends TestCase
 
         $payload['upload_source'] = 'recovered_lora';
 
-        $this->postJson('/api/gps/location', $payload)
+        $this->gps($payload)
             ->assertOk()
             ->assertJsonPath('duplicate', true)
             ->assertJsonPath(
@@ -356,10 +369,10 @@ class GpsIngestionTest extends TestCase
             'upload_source' => 'recovered_lora',
         ]);
 
-        $this->postJson('/api/gps/location', $firstPayload)
+        $this->gps($firstPayload)
             ->assertCreated();
 
-        $this->postJson('/api/gps/location', $secondPayload)
+        $this->gps($secondPayload)
             ->assertCreated();
 
         $this->assertDatabaseCount('gps_locations', 2);
@@ -384,7 +397,7 @@ class GpsIngestionTest extends TestCase
                 'upload_source' => 'recovered_lora',
             ]);
 
-            $this->postJson('/api/gps/location', $payload)
+            $this->gps($payload)
                 ->assertCreated()
                 ->assertJsonPath('duplicate', false)
                 ->assertJsonPath(

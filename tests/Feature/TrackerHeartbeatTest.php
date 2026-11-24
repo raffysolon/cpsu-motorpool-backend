@@ -17,8 +17,13 @@ class TrackerHeartbeatTest extends TestCase
         parent::setUp();
         $this->travelTo(now()->startOfSecond());
 
-        config(['services.gateway.api_key' => 'test-only']);
-        $this->withHeader('X-Gateway-Key', 'test-only');
+        config([
+            'services.gateway.api_key' => 'test-gateway',
+            'services.tracker_legacy.api_key' => 'test-legacy',
+            'tracking.legacy_auth_enabled' => true,
+            'tracking.legacy_device_id' => 'TRACKER-1',
+        ]);
+        $this->withHeader('X-Gateway-Key', 'test-legacy');
 
         $vehicle = Vehicle::create([
             'name' => 'Test',
@@ -65,10 +70,10 @@ class TrackerHeartbeatTest extends TestCase
 
         $this->heartbeat()->assertUnauthorized();
 
-        $this->withHeader('X-Gateway-Key', 'test-only');
+        $this->withHeader('X-Gateway-Key', 'test-legacy');
 
         $this->heartbeat(['device_id' => 'UNKNOWN'])
-            ->assertNotFound();
+            ->assertUnauthorized();
 
         $this->assertFalse(Device::first()->is_online);
     }
@@ -169,16 +174,17 @@ class TrackerHeartbeatTest extends TestCase
 
         $this->assertFalse(Device::first()->is_online);
 
-        $this->postJson('/api/gps/location', [
-            'device_id' => 'TRACKER-1',
-            'record_id' => 'TRACKER-1-1',
-            'device_sequence' => 1,
-            'latitude' => 10,
-            'longitude' => 123,
-            'satellites' => 5,
-            'upload_source' => 'recovered_lora',
-            'captured_at' => now()->subHour()->toISOString(),
-        ])
+        $this->withHeader('X-Gateway-Key', 'test-gateway')
+            ->postJson('/api/gps/location', [
+                'device_id' => 'TRACKER-1',
+                'record_id' => 'TRACKER-1-1',
+                'device_sequence' => 1,
+                'latitude' => 10,
+                'longitude' => 123,
+                'satellites' => 5,
+                'upload_source' => 'recovered_lora',
+                'captured_at' => now()->subHour()->toISOString(),
+            ])
             ->assertCreated()
             ->assertJsonPath('duplicate', false)
             ->assertJsonPath(

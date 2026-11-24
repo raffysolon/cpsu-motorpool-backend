@@ -20,6 +20,10 @@ class Device extends Model
         'registered_at',
     ];
 
+    protected $hidden = [
+        'tracker_key_hash',
+    ];
+
     protected $casts = [
         'last_seen' => 'datetime',
         'registered_at' => 'datetime',

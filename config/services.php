@@ -38,4 +38,9 @@ return [
     'gateway' => [
         'api_key' => env('GATEWAY_API_KEY'),
     ],
+
+    'tracker_legacy' => [
+        // Set to the former shared tracker key during gateway-key rotation.
+        'api_key' => env('TRACKER_LEGACY_API_KEY'),
+    ],
 ];

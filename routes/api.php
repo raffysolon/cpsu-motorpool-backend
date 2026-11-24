@@ -12,7 +12,7 @@ use App\Http\Controllers\TripController;
 use App\Http\Controllers\DeviceController;
 use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\GpsLocationController;
-use App\Http\Middleware\GatewayAuthentication;
+use App\Http\Middleware\TrackerAuthentication;
 // Simple test route
 Route::get('/test', function () {
     return response()->json([
@@ -86,11 +86,11 @@ Route::get('/config-check', function () {
 });
 
 Route::get('/devices/health', [DeviceController::class, 'health']);
-Route::middleware([GatewayAuthentication::class, 'throttle:120,1'])
+Route::middleware([TrackerAuthentication::class.':heartbeat', 'throttle:120,1'])
     ->post('/devices/heartbeat', [\App\Http\Controllers\TrackerHeartbeatController::class, 'store']);
 
-// GPS Location Submission (Gateway Only)
-Route::middleware([GatewayAuthentication::class, 'throttle:120,1'])
+// GPS location submission for trackers, the trusted gateway, or enabled legacy callers.
+Route::middleware([TrackerAuthentication::class.':gps', 'throttle:120,1'])
     ->post('/gps/location', [GpsLocationController::class, 'store']);
 
 // Test database connection and configuration

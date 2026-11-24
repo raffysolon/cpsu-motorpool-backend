@@ -12,20 +12,26 @@ class GatewayAuthentication
         Request $request,
         Closure $next
     ): Response {
-        $expectedKey = config('services.gateway.api_key');
-        $providedKey = $request->header('X-Gateway-Key');
-
-        if (
-            !is_string($expectedKey) ||
-            $expectedKey === '' ||
-            !is_string($providedKey) ||
-            !hash_equals($expectedKey, $providedKey)
-        ) {
+        if (!$this->isAuthenticated($request)) {
             return response()->json([
                 'message' => 'Unauthorized gateway.',
             ], 401);
         }
 
         return $next($request);
+    }
+
+    public function isAuthenticated(Request $request): bool
+    {
+        $expectedKey = config('services.gateway.api_key');
+        $providedKeys = $request->headers->all('X-Gateway-Key');
+        $providedKey = count($providedKeys) === 1
+            ? $providedKeys[0]
+            : null;
+
+        return is_string($expectedKey)
+            && $expectedKey !== ''
+            && is_string($providedKey)
+            && hash_equals($expectedKey, $providedKey);
     }
 }
