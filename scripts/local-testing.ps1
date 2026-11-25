@@ -1,8 +1,9 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true, Position = 0)]
-    [ValidateSet('initialize', 'verify', 'migrate', 'seed', 'scenarios', 'check-movement', 'serve')]
+    [ValidateSet('initialize', 'verify', 'migrate', 'seed', 'scenarios', 'check-movement', 'provision-tracker', 'serve')]
     [string] $Action,
+    [string] $DeviceId,
     [switch] $ProbeMissingEnvironment
 )
 
@@ -127,6 +128,13 @@ if ($Action -eq 'initialize') {
 if ($ProbeMissingEnvironment -and $Action -ne 'verify') {
     throw 'The missing-environment probe is only available with verify.'
 }
+if ($Action -eq 'provision-tracker') {
+    if ([string]::IsNullOrWhiteSpace($DeviceId) -or $DeviceId.Length -gt 100 -or $DeviceId -ne $DeviceId.Trim()) {
+        throw 'A valid DeviceId (1-100 characters, without surrounding whitespace) is required for provision-tracker.'
+    }
+} elseif ($PSBoundParameters.ContainsKey('DeviceId')) {
+    throw 'DeviceId is only available with provision-tracker.'
+}
 if (-not (Test-Path -LiteralPath $environmentFile -PathType Leaf)) {
     throw 'Required .env.local-testing is missing; no Artisan command was started.'
 }
@@ -247,6 +255,10 @@ switch ($Action) {
     }
     'check-movement' {
         & $phpBinary @phpOptions 'artisan' 'trackers:check-movement' '--env=local-testing'
+        exit $LASTEXITCODE
+    }
+    'provision-tracker' {
+        & $phpBinary @phpOptions 'artisan' 'trackers:provision-credential' $DeviceId '--env=local-testing'
         exit $LASTEXITCODE
     }
     'serve' {
