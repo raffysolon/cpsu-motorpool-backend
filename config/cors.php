@@ -43,7 +43,7 @@ return [
 
     'allowed_headers' => ['*'],
 
-    'exposed_headers' => [],
+    'exposed_headers' => ['Retry-After', 'Date', 'X-RateLimit-Limit', 'X-RateLimit-Remaining'],
 
     'max_age' => 0,
 

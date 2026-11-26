@@ -6,6 +6,17 @@ use Illuminate\Database\Eloquent\Model;
 
 class TripMovement extends Model
 {
+    protected $appends = ['late_minutes'];
+
+    public function getLateMinutesAttribute(): ?int
+    {
+        if (!$this->actual_departure_at || !$this->scheduled_departure) {
+            return null;
+        }
+
+        return max(0, (int) floor($this->scheduled_departure->diffInSeconds($this->actual_departure_at, false) / 60));
+    }
+
     protected $fillable = [
         'trip_id',
         'movement_no',
