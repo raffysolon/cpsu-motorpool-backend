@@ -10,6 +10,7 @@ return new class extends Migration
     public function up(): void
     {
         $hasDuplicates = DB::table('gps_locations')
+            ->select('device_registry_id', 'device_sequence')
             ->whereNotNull('device_sequence')
             ->groupBy('device_registry_id', 'device_sequence')
             ->havingRaw('COUNT(*) > 1')
