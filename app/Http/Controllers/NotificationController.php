@@ -14,6 +14,7 @@ class NotificationController extends Controller
         }
         $notifications = Notification::with('trip')
             ->where('user_id', $request->user()->id)
+            ->whereNull('dismissed_at')
             ->latest()
             ->get();
 
@@ -39,11 +40,23 @@ class NotificationController extends Controller
             app(\App\Services\TripDepartureMonitor::class)->check();
         }
         $count = Notification::where('user_id', $request->user()->id)
+            ->whereNull('dismissed_at')
             ->where('is_read', false)
             ->count();
 
         return response()->json([
             'count' => $count,
         ]);
+    }
+
+    public function destroy(Request $request, Notification $notification)
+    {
+        abort_unless($notification->user_id === $request->user()->id, 403);
+        // Keep the event key so periodic monitors do not recreate this alert.
+        $notification->dismissed_at = $notification->dismissed_at ?? now();
+        $notification->is_read = true;
+        $notification->save();
+
+        return response()->noContent();
     }
 }

@@ -214,6 +214,7 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     // Notifications
     Route::get('/notifications', [NotificationController::class, 'index']);
     Route::put('/notifications/{notification}/read', [NotificationController::class, 'markAsRead']);
+    Route::delete('/notifications/{notification}', [NotificationController::class, 'destroy']);
     Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
 
     // Change Password (with stricter limit)
