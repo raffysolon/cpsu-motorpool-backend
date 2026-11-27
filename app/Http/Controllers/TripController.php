@@ -617,6 +617,7 @@ class TripController extends Controller
         ini_set('memory_limit', '256M');
         set_time_limit(180);
         $pdf = Pdf::loadView('trip_ticket', ['trip' => $trip])
+            ->setPaper([0, 0, 612, 936]) // Long bond: 8.5 x 13 inches.
             ->setOptions(['isRemoteEnabled' => false, 'isFontSubsettingEnabled' => false]);
         $filename = 'trip_ticket_' . $trip->id . '.pdf';
         $path = storage_path('app/public/pdfs/' . $filename);
@@ -669,6 +670,7 @@ class TripController extends Controller
         ini_set('memory_limit', '256M');
         set_time_limit(180);
         $pdf = Pdf::loadView('trip_ticket', ['trip' => $trip])
+            ->setPaper([0, 0, 612, 936]) // Match the downloaded ticket exactly.
             ->setOptions(['isRemoteEnabled' => false, 'isFontSubsettingEnabled' => false]);
         $filename = 'trip_ticket_preview.pdf';
         $path = storage_path('app/public/pdfs/' . $filename);

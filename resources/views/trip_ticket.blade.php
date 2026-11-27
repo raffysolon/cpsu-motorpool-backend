@@ -25,14 +25,13 @@
 
         @page {
             size: 8.5in 13in;
-            margin: 8mm 8mm 5mm 8mm;
+            margin: 8mm 12mm 15mm 12mm;
         }
 
         * {
             box-sizing: border-box;
         }
 
-        html,
         body {
             margin: 0;
             padding: 0;
@@ -70,8 +69,11 @@
 
         .header-table {
             width: 100%;
-            table-layout: fixed;
-            border-collapse: collapse;
+            margin: 0 auto;
+            position: relative;
+            height: 55px;
+            text-align: center;
+            white-space: nowrap;
         }
 
         .header-table td {
@@ -81,41 +83,40 @@
         }
 
         .header-table .logo-col {
-            width: 170px;
-            position: relative;
+            position: absolute;
+            right: 50%;
+            margin-right: 153px;
+            top: 0;
+            width: 100px;
+            white-space: nowrap;
             height: 55px;
             vertical-align: middle;
         }
 
         .header-table .logo-col img {
-            position: absolute;
-            top: 50%;
-            transform: translateY(-50%);
+            display: inline-block;
+            vertical-align: middle;
             height: auto;
         }
 
         .header-table .logo-col img:first-child {
-            width: 40px;
-            left: 165px;
+            width: 45px;
         }
 
         .header-table .logo-col img:nth-child(2) {
-            width: 45px;
-            left: 205px;
+            width: 50px;
         }
 
         .header-table .name-col {
-            width: auto;
+            display: block;
+            width: 100%;
             text-align: center;
+            padding-top: 10px;
             vertical-align: middle;
         }
 
-        .header-table .spacer-col {
-            width: 170px;
-        }
-
         .school-name {
-            font-size: 13px;
+            font-size: 14px;
             font-weight: bold;
             white-space: nowrap;
             display: inline-block;
@@ -123,8 +124,9 @@
         }
 
         .school-address {
-            font-size: 10px;
+            font-size: 11px;
             margin-top: 1mm;
+            text-align: center;
         }
 
 
@@ -134,7 +136,7 @@
 
         .title {
             text-align: center;
-            font-size: 13px;
+            font-size: 15px;
             font-weight: bold;
             margin: 5mm 0 6mm;
         }
@@ -152,15 +154,27 @@
         }
 
         .instruction-table .instruction-col {
-            width: 62%;
+            width: 70%;
             line-height: 1.5;
         }
 
         .instruction-table .ticket-col {
-            width: 38%;
-            padding-left: 10mm;
+            width: 30%;
+            padding-left: 3mm;
             padding-top: 1mm;
             font-weight: bold;
+        }
+
+        .instruction-list {
+            margin: 2px 0 0;
+            padding-left: 18px;
+        }
+
+        .ticket-number-line {
+            display: inline-block;
+            width: 65px;
+            height: 10px;
+            border-bottom: 1px solid #000;
         }
 
 
@@ -170,13 +184,13 @@
 
         .details-table {
             margin-top: 5mm;
-            margin-bottom: 6mm;
+            margin-bottom: 1mm;
         }
 
         .details-table td {
             border: none;
-            padding: 0 0 4mm 0;
-            font-size: 10px;
+            padding: 0 0 2.5mm 0;
+            font-size: 11px;
         }
 
         .details-table .left-col {
@@ -205,8 +219,8 @@
         .passenger-table th,
         .passenger-table td {
             border: 1px solid #000;
-            padding: 1.5mm;
-            font-size: 9px;
+            padding: 1.7mm;
+            font-size: 10px;
         }
 
         .passenger-table th {
@@ -223,7 +237,7 @@
         }
 
         .passenger-note {
-            font-size: 9px;
+            font-size: 10px;
             margin-top: 2mm;
         }
 
@@ -265,7 +279,7 @@
             font-size: 11px;
             font-weight: bold;
             text-decoration: underline;
-            margin-top: 2px;
+            margin-top: 10px;
             margin-bottom: 2px;
         }
 
@@ -298,7 +312,7 @@
             padding: 0;
             text-align: center;
             vertical-align: middle;
-            font-size: 8px;
+            font-size: 9px;
         }
 
         .trip-table thead tr:first-child th {
@@ -369,26 +383,38 @@
         .fuel-grid .fuel-left {
             width: 50%;
             text-align: left;
+            padding-left: 14px;
         }
 
         .fuel-grid .fuel-right {
             width: 50%;
             text-align: left;
-            padding-left: 25px;
+            padding-left: 50px;
         }
 
         .fuel-item {
             display: inline-block;
             line-height: 1.1;
+            white-space: nowrap;
         }
 
         .fuel-label {
             display: inline-block;
+            width: 160px;
+        }
+
+        .fuel-indent .fuel-label {
+            width: 146px;
+        }
+
+        .fuel-right .fuel-label {
+            width: 120px;
         }
 
         .fuel-line {
             display: inline-block;
-            width: 60px;
+            width: 75px;
+            height: 10px;
             border-bottom: 1px solid #000;
             margin: 0 2px;
         }
@@ -410,7 +436,7 @@
          */
 
         .certified-table {
-            width: 40%;
+            width: 30%;
             margin-left: 60%;
             margin-top: 4mm;
             margin-bottom: 2mm;
@@ -424,27 +450,19 @@
             vertical-align: bottom;
         }
 
-        .certified-table .cert-spacer {
-            width: 0;
-        }
-
         .certified-table .cert-label {
-            width: 45%;
+            text-align: left;
+            padding-left: 12px;
             white-space: nowrap;
         }
 
         .certified-table .cert-line {
-            width: 55%;
+            height: 7mm;
+            border-bottom: 1px solid #000;
         }
 
-        .certified-table tr:last-child td[colspan="2"] {
-            text-align: left;
-            padding-left: 0;
-            padding-top: 4px;
-        }
-
-        .fuel-driver-signature {
-            text-align: left;
+        .certified-table .fuel-driver-signature {
+            text-align: center;
             font-size: 9px;
             padding-top: 1mm;
             padding-left: 0;
@@ -456,8 +474,12 @@
            ========================================= */
 
         .footer-single {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: -8mm;
             width: 100%;
-            margin-top: 12mm;
+            margin: 0;
             padding: 0;
 
             text-align: center;
@@ -476,7 +498,6 @@
 
         @media print {
 
-            html,
             body {
                 margin: 0;
                 padding: 0;
@@ -494,15 +515,16 @@
 
             .certified-table {
                 position: static;
-                width: 40%;
+                width: 30%;
                 margin-left: 60%;
                 margin-top: 4mm;
             }
 
             .footer-single {
-                position: static;
+                position: fixed;
+                bottom: -8mm;
                 width: 100%;
-                margin-top: 12mm;
+                margin: 0;
 
                 display: block !important;
                 visibility: visible !important;
@@ -522,11 +544,8 @@
          HEADER
          ========================================= -->
 
-    <table class="header-table">
-
-        <tr>
-
-            <td class="logo-col">
+    <div class="header-table">
+            <div class="logo-col">
 
                 @if($cpsuLogo)
 
@@ -541,10 +560,8 @@
 
                 @endif
 
-            </td>
-
-
-            <td class="name-col">
+            </div>
+            <div class="name-col">
 
                 <div class="school-name">
                     CENTRAL PHILIPPINES STATE UNIVERSITY
@@ -554,14 +571,8 @@
                     Kabankalan City, Negros Occidental
                 </div>
 
-            </td>
-
-
-            <td class="spacer-col"></td>
-
-        </tr>
-
-    </table>
+            </div>
+    </div>
 
 
     <!-- =========================================
@@ -587,15 +598,12 @@
                     INSTRUCTION:
                 </div>
 
-                1. Accomplish in 3 Copies.<br>
-
-                2. Original copy to be return to the Supply Officer
-                with duplicate copy of Vale.<br>
-
-                3. Duplicate copy to be furnished to the Official User.<br>
-
-                4. Triplicate copy to be furnished to the Security Guard
-                on duty.
+                <ol class="instruction-list">
+                    <li>Accomplish in 3 Copies.</li>
+                    <li>Original copy to be return to the Supply Officer with duplicate copy of Vale.</li>
+                    <li>Duplicate copy to be furnished to the Official User.</li>
+                    <li>Triplicate copy to be furnished to the Security Guard on duty.</li>
+                </ol>
 
             </td>
 
@@ -603,6 +611,7 @@
             <td class="ticket-col">
 
                 Trip Ticket No:
+                <span class="ticket-number-line"></span>
 
             </td>
 
@@ -857,6 +866,18 @@
     @endphp
 
     <table class="trip-table">
+        <colgroup>
+            <col style="width:5%">
+            <col style="width:9%">
+            <col style="width:9%">
+            <col style="width:14%">
+            <col style="width:10%">
+            <col style="width:9%">
+            <col style="width:14%">
+            <col style="width:10%">
+            <col style="width:10%">
+            <col style="width:10%">
+        </colgroup>
 
         <thead>
 
@@ -1178,23 +1199,20 @@
 
         <tr>
 
-            <td class="cert-spacer"></td>
-
             <td class="cert-label">
                 Certified Correct:
             </td>
 
-            <td class="cert-line"></td>
+        </tr>
 
+        <tr>
+            <td class="cert-line">&nbsp;</td>
         </tr>
 
 
         <tr>
 
-            <td class="cert-spacer"></td>
-
             <td
-                colspan="2"
                 class="fuel-driver-signature"
             >
                 Name &amp; Signature of Driver
