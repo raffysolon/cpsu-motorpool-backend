@@ -92,6 +92,8 @@ Route::middleware([TrackerAuthentication::class.':heartbeat', 'throttle:120,1'])
 // GPS location submission for trackers, the trusted gateway, or enabled legacy callers.
 Route::middleware([TrackerAuthentication::class.':gps', 'throttle:120,1'])
     ->post('/gps/location', [GpsLocationController::class, 'store']);
+Route::middleware([TrackerAuthentication::class.':gateway-sync-status', 'throttle:120,1'])
+    ->post('/gps/sync-status', [\App\Http\Controllers\GatewaySyncStatusController::class, 'store']);
 
 // Test database connection and configuration
 Route::get('/test-db', function () {
@@ -183,7 +185,9 @@ Route::middleware(['auth:sanctum', 'role:admin', 'throttle:api'])->group(functio
     Route::delete('/devices/{device_id}', [DeviceController::class, 'destroy']);
     // GPS Tracking (Admin Only)
     Route::get('/gps/sync-logs', [GpsLocationController::class, 'syncLogs']);
+    Route::get('/trips/{trip}/eta', [GpsLocationController::class, 'tripEta'])->whereNumber('trip')->middleware('throttle:12,1');
     Route::get('/trips/{trip}/recorded-route', [GpsLocationController::class, 'recordedRoute'])->whereNumber('trip');
+    Route::get('/trips/{trip}/activity', [\App\Http\Controllers\TripActivityController::class, 'index'])->whereNumber('trip');
 Route::get('/gps/vehicles/{vehicle_id}/latest', [GpsLocationController::class, 'latest'])
     ->whereNumber('vehicle_id');
 

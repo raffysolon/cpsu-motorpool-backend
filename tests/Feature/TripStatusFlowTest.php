@@ -218,9 +218,11 @@ class TripStatusFlowTest extends TestCase
 
         $this->postJson('/api/trips/' . $lateToday->id . '/start')
             ->assertOk();
+        $lateToday->update(['status' => 'completed']);
         $this->postJson('/api/trips/' . $earlyWindow->id . '/start')
             ->assertOk()
             ->assertJsonPath('start_timing', 'early');
+        $earlyWindow->update(['status' => 'completed']);
         $this->postJson('/api/trips/' . $tooEarlyToday->id . '/start')
             ->assertStatus(422);
         $this->postJson('/api/trips/' . $yesterday->id . '/start')

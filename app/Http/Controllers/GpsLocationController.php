@@ -6,8 +6,11 @@ use App\Models\Device;
 use App\Models\GpsLocation;
 use App\Models\Trip;
 use Carbon\Carbon;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 
 class GpsLocationController extends Controller
 {
@@ -237,6 +240,8 @@ class GpsLocationController extends Controller
 
             $context = [
                 'id' => $trip->id,
+                'destination' => $trip->destination,
+                'active_movement_no' => $trip->movements->firstWhere('status', 'active')?->movement_no,
                 'status' => $trip->effective_status,
                 'scheduled_departure' => $scheduled->toISOString(),
                 'actual_departure_at' => $movement?->actual_departure_at?->toISOString(),
@@ -281,10 +286,79 @@ class GpsLocationController extends Controller
             $query->whereIn('id', DB::query()->fromSub($ranked, 'uploads')->select('id')->where('upload_rank', 1));
         }
         $query->orderByRaw('COALESCE(received_at, created_at, recorded_at) DESC')->orderByDesc('id');
-        return response()->json($request->boolean('summary')
-            ? ['data' => $query->get()]
-            : $query->paginate(50));
+        if (!$request->boolean('summary')) {
+            return response()->json($query->paginate(50));
+        }
+
+        $transfers = DB::table('gateway_sync_statuses')->get()->map(function ($status) {
+            $status->reported_at = Carbon::parse($status->reported_at, 'UTC')->toISOString();
+            return $status;
+        });
+
+        return response()->json(['data' => $query->get(), 'transfers' => $transfers]);
     }
+
+    public function tripEta(Trip $trip)
+    {
+        $movement = $trip->movements()->where('status', 'active')->first();
+        if ($trip->status !== 'active' || !$movement) {
+            return response()->json(['status' => 'not_driving']);
+        }
+        if ((int) $movement->movement_no !== 1) {
+            return response()->json(['status' => 'return_leg']);
+        }
+        if ($trip->destination_latitude === null || $trip->destination_longitude === null) {
+            return response()->json(['status' => 'pin_missing']);
+        }
+        $gps = $trip->vehicle_id === null ? null : GpsLocation::query()
+            ->where('vehicle_id', $trip->vehicle_id)
+            ->orderByDesc('recorded_at')->orderByDesc('id')->first();
+        if (!$gps) {
+            return response()->json(['status' => 'gps_missing']);
+        }
+        $recordedAt = $gps->recorded_at;
+        $age = $recordedAt->diffInSeconds(now(), false);
+        if ($age < -5 || $age > 60) {
+            return response()->json([
+                'status' => 'gps_stale',
+                'gps_recorded_at' => $recordedAt->toISOString(),
+            ]);
+        }
+
+        $router = config('services.osrm.url');
+        if (!$router) {
+            return response()->json(['status' => 'routing_unconfigured']);
+        }
+        $coordinates = "{$gps->longitude},{$gps->latitude};{$trip->destination_longitude},{$trip->destination_latitude}";
+        $key = 'trip-eta:' . hash('sha256', "$router|$coordinates");
+        $duration = Cache::remember($key, 60, function () use ($router, $coordinates) {
+            try {
+                $response = Http::acceptJson()
+                    ->connectTimeout(3)->timeout(6)->withoutRedirecting()
+                    ->get(rtrim($router, '/') . '/route/v1/driving/' . $coordinates, ['overview' => 'false']);
+                $seconds = $response->json('routes.0.duration');
+                if ($response->successful() && $response->json('code') === 'Ok'
+                    && is_numeric($seconds) && is_finite((float) $seconds) && $seconds >= 0
+                ) {
+                    return (int) ceil($seconds);
+                }
+            } catch (ConnectionException) {
+                return false;
+            }
+
+            return false;
+        });
+        if ($duration === false) {
+            return response()->json(['status' => 'routing_unavailable']);
+        }
+
+        return response()->json([
+            'status' => 'available',
+            'arrival_at' => $recordedAt->copy()->addSeconds($duration)->toISOString(),
+            'gps_recorded_at' => $recordedAt->toISOString(),
+        ]);
+    }
+
 
     public function recordedRoute(Trip $trip)
     {

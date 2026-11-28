@@ -138,6 +138,10 @@ class TrackerAuthentication
             ], true);
         }
 
+        if ($operation === 'gateway-sync-status') {
+            return $callerType === TrackerCallerType::TrustedGateway;
+        }
+
         if ($operation !== 'gps') {
             return false;
         }

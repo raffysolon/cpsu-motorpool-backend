@@ -6,6 +6,7 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use App\Models\Notification;
 use App\Models\Trip;
+use App\Models\TripActivity;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\CoordinatorAssignment;
@@ -77,6 +78,45 @@ class TripController extends Controller
         }
 
         return false;
+    }
+
+    private function bookingEnd(Carbon $start, ?string $returnDeparture, ?string $expectedEnd): Carbon
+    {
+        if ($expectedEnd) {
+            return Carbon::parse($expectedEnd);
+        }
+        $defaultEnd = $start->copy()->addHours(4);
+        return $returnDeparture ? $defaultEnd->max(Carbon::parse($returnDeparture)->addHour()) : $defaultEnd;
+    }
+
+    private function validateBookingEnd(string $departure, ?string $returnDeparture, ?string $expectedEnd): void
+    {
+        $start = Carbon::parse($departure);
+        if ($returnDeparture && Carbon::parse($returnDeparture)->lt($start)) {
+            abort(422, 'Return departure must be at or after scheduled departure.');
+        }
+        if ($expectedEnd && Carbon::parse($expectedEnd)->lte(Carbon::parse($returnDeparture ?? $departure))) {
+            abort(422, 'Expected trip end must be after the final departure.');
+        }
+    }
+
+    private function ensureDriverScheduleAvailable(int $driverId, string $departure, ?string $returnDeparture, ?string $expectedEnd, ?int $exceptTrip = null): void
+    {
+        $start = Carbon::parse($departure);
+        $end = $this->bookingEnd($start, $returnDeparture, $expectedEnd);
+        $bookings = Trip::query()
+            ->where('driver_id', $driverId)
+            ->whereIn('status', ['approved', 'scheduled', 'active'])
+            ->when($exceptTrip, fn ($query) => $query->whereKeyNot($exceptTrip))
+            ->orderBy('scheduled_departure')->get();
+
+        foreach ($bookings as $booking) {
+            $reservedStart = Carbon::parse($booking->scheduled_departure);
+            $reservedEnd = $this->bookingEnd($reservedStart, $booking->return_scheduled_departure, $booking->scheduled_end_at);
+            if ($start->lt($reservedEnd) && $reservedStart->lt($end)) {
+                abort(422, "Schedule overlaps trip #{$booking->id} to {$booking->destination}. Please choose a different time.");
+            }
+        }
     }
 
     private function createViceVersaMovements(Trip $trip, ?string $returnScheduledDeparture = null): void
@@ -200,6 +240,7 @@ class TripController extends Controller
             'destination' => 'required|string',
             'purpose' => 'required|string',
             'scheduled_departure' => 'required|date',
+            'scheduled_end_at' => 'nullable|date',
             'return_scheduled_departure' => 'nullable|date',
             'passengers' => 'nullable|array',
             'passengers.*.name' => 'required|string',
@@ -207,62 +248,74 @@ class TripController extends Controller
         ]);
 
         $driver = $request->user();
+        abort_unless($driver->role === 'driver', 403);
+        $this->validateBookingEnd($validated['scheduled_departure'], $validated['return_scheduled_departure'] ?? null, $validated['scheduled_end_at'] ?? null);
 
-        $assignment = CoordinatorAssignment::with('vehicle')
-            ->where('driver_id', $driver->id)
-            ->first();
+        return DB::transaction(function () use ($driver, $validated) {
+            User::whereKey($driver->id)->lockForUpdate()->firstOrFail();
+            $pending = Trip::where('driver_id', $driver->id)->where('status', 'pending')->orderBy('id')->first();
+            if ($pending) {
+                abort(422, "Trip #{$pending->id} to {$pending->destination} is still pending. Wait for the admin decision before sending another request.");
+            }
+            $this->ensureDriverScheduleAvailable($driver->id, $validated['scheduled_departure'], $validated['return_scheduled_departure'] ?? null, $validated['scheduled_end_at'] ?? null);
+            $assignment = CoordinatorAssignment::with('vehicle')
+                ->where('driver_id', $driver->id)
+                ->first();
 
-        $vehicleId = $assignment?->vehicle_id;
+            $vehicleId = $assignment?->vehicle_id;
 
-        $destination = trim($validated['destination']);
-        $pin = DB::table('saved_destinations')->where('name', $destination)->first();
-        if (!$pin) {
-            $matches = DB::table('saved_destinations')
-                ->whereRaw('LOWER(name) = LOWER(?)', [$destination])->limit(2)->get();
-            $pin = $matches->count() === 1 ? $matches->first() : null;
-        }
+            $destination = trim($validated['destination']);
+            $pin = DB::table('saved_destinations')->where('name', $destination)->first();
+            if (!$pin) {
+                $matches = DB::table('saved_destinations')
+                    ->whereRaw('LOWER(name) = LOWER(?)', [$destination])->limit(2)->get();
+                $pin = $matches->count() === 1 ? $matches->first() : null;
+            }
 
-        $trip = Trip::create([
-            'driver_id' => $driver->id,
-            'vehicle_id' => $vehicleId,
-            'origin' => $validated['origin'],
-            'destination' => $pin->name ?? $destination,
-            'destination_latitude' => $pin->latitude ?? null,
-            'destination_longitude' => $pin->longitude ?? null,
-            'purpose' => $validated['purpose'],
-            'scheduled_departure' => $validated['scheduled_departure'],
-            'return_scheduled_departure' => $validated['return_scheduled_departure'] ?? null,
-            'status' => 'pending',
-            'source' => 'driver',
-        ]);
+            $trip = Trip::create([
+                'driver_id' => $driver->id,
+                'vehicle_id' => $vehicleId,
+                'origin' => $validated['origin'],
+                'destination' => $pin->name ?? $destination,
+                'destination_latitude' => $pin->latitude ?? null,
+                'destination_longitude' => $pin->longitude ?? null,
+                'purpose' => $validated['purpose'],
+                'scheduled_departure' => Carbon::parse($validated['scheduled_departure'])->setTimezone(config('app.timezone'))->toDateTimeString(),
+                'scheduled_end_at' => isset($validated['scheduled_end_at']) ? Carbon::parse($validated['scheduled_end_at'])->setTimezone(config('app.timezone'))->toDateTimeString() : null,
+                'return_scheduled_departure' => isset($validated['return_scheduled_departure']) ? Carbon::parse($validated['return_scheduled_departure'])->setTimezone(config('app.timezone'))->toDateTimeString() : null,
+                'status' => 'pending',
+                'source' => 'driver',
+            ]);
 
-        $this->createViceVersaMovements($trip, $validated['return_scheduled_departure'] ?? null);
+            TripActivity::record($trip, $driver, 'submitted', $trip->created_at);
+            $this->ensureMovements($trip);
 
-        if (!empty($validated['passengers'])) {
-            foreach ($validated['passengers'] as $passenger) {
-                $trip->passengers()->create([
-                    'name' => $passenger['name'],
-                    'designation' => $passenger['designation'] ?? null,
+            if (!empty($validated['passengers'])) {
+                foreach ($validated['passengers'] as $passenger) {
+                    $trip->passengers()->create([
+                        'name' => $passenger['name'],
+                        'designation' => $passenger['designation'] ?? null,
+                    ]);
+                }
+            }
+
+            $admins = User::where('role', 'admin')->get();
+            $driverName = $driver->name ?: 'Driver';
+
+            foreach ($admins as $admin) {
+                Notification::create([
+                    'user_id' => $admin->id,
+                    'trip_id' => $trip->id,
+                    'message' => "New trip request from {$driverName} to {$trip->destination}",
+                    'is_read' => false,
                 ]);
             }
-        }
 
-        $admins = User::where('role', 'admin')->get();
-        $driverName = $driver->name ?: 'Driver';
-
-        foreach ($admins as $admin) {
-            Notification::create([
-                'user_id' => $admin->id,
-                'trip_id' => $trip->id,
-                'message' => "New trip request from {$driverName} to {$trip->destination}",
-                'is_read' => false,
-            ]);
-        }
-
-        return response()->json([
-            'message' => 'Trip request submitted',
-            'trip' => $trip->load(['vehicle', 'passengers', 'movements']),
-        ], 201);
+            return response()->json([
+                'message' => 'Trip request submitted',
+                'trip' => $trip->load(['vehicle', 'passengers', 'movements']),
+            ], 201);
+        });
     }
 
     public function adminStore(Request $request)
@@ -286,55 +339,61 @@ class TripController extends Controller
         $scheduledDeparture = $validated['scheduled_departure'] ?? null;
         $scheduledDepartureForStorage = $scheduledDeparture ?: now()->toDateTimeString();
 
-        if ($scheduledDeparture) {
-            $driverConflict = $this->hasResourceConflict('driver_id', (int) $validated['driver_id'], $scheduledDeparture);
-            $vehicleConflict = $this->hasResourceConflict('vehicle_id', (int) $validated['vehicle_id'], $scheduledDeparture);
+        return DB::transaction(function () use ($request, $validated, $origin, $destination, $purpose, $scheduledDeparture, $scheduledDepartureForStorage) {
+            User::whereKey($validated['driver_id'])->lockForUpdate()->firstOrFail();
+            if ($scheduledDeparture) {
+                $driverConflict = $this->hasResourceConflict('driver_id', (int) $validated['driver_id'], $scheduledDeparture);
+                $vehicleConflict = $this->hasResourceConflict('vehicle_id', (int) $validated['vehicle_id'], $scheduledDeparture);
 
-            if ($driverConflict || $vehicleConflict) {
-                return response()->json([
-                    'message' => 'This driver or vehicle is already assigned to a conflicting trip during the selected schedule.',
-                ], 422);
+                if ($driverConflict || $vehicleConflict) {
+                    return response()->json([
+                        'message' => 'This driver or vehicle is already assigned to a conflicting trip during the selected schedule.',
+                    ], 422);
+                }
             }
-        }
 
-        $trip = Trip::create([
-            'driver_id' => $validated['driver_id'],
-            'vehicle_id' => $validated['vehicle_id'],
-            'origin' => $origin,
-            'destination' => $destination,
-            'purpose' => $purpose,
-            'scheduled_departure' => $scheduledDepartureForStorage,
-            'return_scheduled_departure' => $validated['return_scheduled_departure'] ?? null,
-            'status' => 'approved',
-            'source' => 'admin',
-        ]);
+            $this->ensureDriverScheduleAvailable((int) $validated['driver_id'], $scheduledDepartureForStorage, $validated['return_scheduled_departure'] ?? null, null);
 
-        $this->createViceVersaMovements($trip, $validated['return_scheduled_departure'] ?? null);
+            $trip = Trip::create([
+                'driver_id' => $validated['driver_id'],
+                'vehicle_id' => $validated['vehicle_id'],
+                'origin' => $origin,
+                'destination' => $destination,
+                'purpose' => $purpose,
+                'scheduled_departure' => $scheduledDepartureForStorage,
+                'return_scheduled_departure' => $validated['return_scheduled_departure'] ?? null,
+                'status' => 'approved',
+                'source' => 'admin',
+            ]);
 
-        if (!empty($validated['passengers'])) {
-            foreach ($validated['passengers'] as $passenger) {
-                $trip->passengers()->create([
-                    'name' => $passenger['name'],
-                    'designation' => $passenger['designation'] ?? null,
+            TripActivity::record($trip, $request->user(), 'admin_created', $trip->created_at);
+            $this->createViceVersaMovements($trip, $validated['return_scheduled_departure'] ?? null);
+
+            if (!empty($validated['passengers'])) {
+                foreach ($validated['passengers'] as $passenger) {
+                    $trip->passengers()->create([
+                        'name' => $passenger['name'],
+                        'designation' => $passenger['designation'] ?? null,
+                    ]);
+                }
+            }
+
+            $driver = User::find($validated['driver_id']);
+
+            if ($driver) {
+                Notification::create([
+                    'user_id' => $driver->id,
+                    'trip_id' => $trip->id,
+                    'message' => "A new trip to {$trip->destination} has been created and assigned to you",
+                    'is_read' => false,
                 ]);
             }
-        }
 
-        $driver = User::find($validated['driver_id']);
-
-        if ($driver) {
-            Notification::create([
-                'user_id' => $driver->id,
-                'trip_id' => $trip->id,
-                'message' => "A new trip to {$trip->destination} has been created and assigned to you",
-                'is_read' => false,
-            ]);
-        }
-
-        return response()->json([
-            'message' => 'Trip request submitted',
-            'trip' => $trip->load(['driver', 'vehicle', 'passengers', 'movements']),
-        ], 201);
+            return response()->json([
+                'message' => 'Trip request submitted',
+                'trip' => $trip->load(['driver', 'vehicle', 'passengers', 'movements']),
+            ], 201);
+        });
     }
 
     public function availableDrivers(Request $request)
@@ -419,157 +478,199 @@ class TripController extends Controller
             'origin' => ['sometimes', 'string'],
             'scheduled_departure' => ['sometimes', 'date'],
             'return_scheduled_departure' => ['sometimes', 'nullable', 'date'],
+            'scheduled_end_at' => ['sometimes', 'nullable', 'date'],
         ]);
 
-        if (array_key_exists('departure_place', $validated)) {
-            $validated['origin'] = $validated['departure_place'];
-            unset($validated['departure_place']);
-        }
+        return DB::transaction(function () use ($trip, $validated) {
+            User::whereKey($trip->driver_id)->lockForUpdate()->firstOrFail();
+            $trip->refresh();
 
-        if (array_key_exists('departure_date', $validated) || array_key_exists('departure_time', $validated)) {
-            $departure = Carbon::parse($trip->scheduled_departure);
-            $date = $validated['departure_date'] ?? $departure->format('Y-m-d');
-            $time = $validated['departure_time'] ?? $departure->format('H:i');
-            $validated['scheduled_departure'] = Carbon::parse("{$date} {$time}");
-            unset($validated['departure_date'], $validated['departure_time']);
-        }
+            if (array_key_exists('departure_place', $validated)) {
+                $validated['origin'] = $validated['departure_place'];
+                unset($validated['departure_place']);
+            }
 
-        $trip->update($validated);
+            if (array_key_exists('departure_date', $validated) || array_key_exists('departure_time', $validated)) {
+                $departure = Carbon::parse($trip->scheduled_departure);
+                $date = $validated['departure_date'] ?? $departure->format('Y-m-d');
+                $time = $validated['departure_time'] ?? $departure->format('H:i');
+                $validated['scheduled_departure'] = Carbon::parse("{$date} {$time}");
+                unset($validated['departure_date'], $validated['departure_time']);
+            }
 
-        return response()->json([
-            'message' => 'Trip ticket updated',
-            'trip' => $trip->fresh()->load(['driver', 'vehicle', 'passengers', 'movements']),
-        ]);
+            $scheduleFields = array_intersect_key($validated, array_flip(['scheduled_departure', 'return_scheduled_departure', 'scheduled_end_at']));
+            if ($scheduleFields !== [] && !in_array($trip->status, ['denied', 'completed'], true)) {
+                $departure = (string) ($validated['scheduled_departure'] ?? $trip->scheduled_departure);
+                $returnDeparture = array_key_exists('return_scheduled_departure', $validated) ? $validated['return_scheduled_departure'] : $trip->return_scheduled_departure;
+                $expectedEnd = array_key_exists('scheduled_end_at', $validated) ? $validated['scheduled_end_at'] : $trip->scheduled_end_at;
+                $this->validateBookingEnd($departure, $returnDeparture, $expectedEnd);
+                $this->ensureDriverScheduleAvailable($trip->driver_id, $departure, $returnDeparture, $expectedEnd, $trip->id);
+            }
+            $trip->update($validated);
+            foreach ([1 => 'scheduled_departure', 2 => 'return_scheduled_departure'] as $leg => $field) {
+                if (array_key_exists($field, $scheduleFields)) {
+                    $trip->movements()->where('movement_no', $leg)->where('status', 'scheduled')
+                        ->update(['scheduled_departure' => $validated[$field]]);
+                }
+            }
+
+            return response()->json([
+                'message' => 'Trip ticket updated',
+                'trip' => $trip->fresh()->load(['driver', 'vehicle', 'passengers', 'movements']),
+            ]);
+        });
     }
 
     public function start(Request $request, Trip $trip)
     {
         return DB::transaction(function () use ($request, $trip) {
-        $trip = Trip::lockForUpdate()->findOrFail($trip->id);
-        $this->authorizeDriverTrip($request, $trip);
-        $location = $this->validateLocation($request);
-        $this->ensureMovements($trip);
-        $movement = $trip->movements()->where('movement_no', 1)->firstOrFail();
-        $now = now();
+            $this->authorizeDriverTrip($request, $trip);
+            User::whereKey($trip->driver_id)->lockForUpdate()->firstOrFail();
+            $trip = Trip::lockForUpdate()->findOrFail($trip->id);
+            $location = $this->validateLocation($request);
+            $this->ensureMovements($trip);
+            $movement = $trip->movements()->where('movement_no', 1)->firstOrFail();
+            $now = now();
 
-        abort_unless(
-            in_array($trip->status, ['approved', 'scheduled'], true)
-                && $movement->status === 'scheduled'
-                && $movement->scheduled_departure
-                && $movement->scheduled_departure->isSameDay($now)
-                && $movement->scheduled_departure->copy()->subMinutes(10)->lte($now),
-            422,
-            'This trip can start up to 10 minutes before its scheduled departure time.'
-        );
+            $active = Trip::where('driver_id', $trip->driver_id)->where('status', 'active')->whereKeyNot($trip->id)->first();
+            if ($active) {
+                abort(422, "Complete active trip #{$active->id} before starting another trip.");
+            }
 
-        $movement->update([
-            'actual_departure_at' => $now,
-            'departure_latitude' => $location['latitude'] ?? null,
-            'departure_longitude' => $location['longitude'] ?? null,
-            'status' => 'active',
-        ]);
-        $trip->update(['status' => 'active']);
+            abort_unless(
+                in_array($trip->status, ['approved', 'scheduled'], true)
+                    && $movement->status === 'scheduled'
+                    && $movement->scheduled_departure
+                    && $movement->scheduled_departure->isSameDay($now)
+                    && $movement->scheduled_departure->copy()->subMinutes(10)->lte($now),
+                422,
+                'This trip can start up to 10 minutes before its scheduled departure time.'
+            );
 
-        $startedEarly = $now->lt($movement->scheduled_departure);
-        $startedLate = $now->gt($movement->scheduled_departure);
-        $startTiming = 'on_time';
-        $message = 'Trip started on time.';
-
-        if ($startedEarly) {
-            $startTiming = 'early';
-            $message = 'Trip started 10 minutes before the scheduled departure time.';
-        } elseif ($startedLate) {
-            $startTiming = 'late';
-            $minutes = $movement->late_minutes;
-            $duration = $minutes > 0 ? "{$minutes} minute(s)" : 'less than 1 minute';
-            $message = "Trip started {$duration} late.";
-        }
-
-        $lateMinutes = $movement->late_minutes;
-        $lateDuration = $lateMinutes > 0 ? "{$lateMinutes} minute(s)" : 'less than 1 minute';
-        $deviceLabel = app(TripDepartureMonitor::class)->deviceLabel($trip);
-        $driverName = $request->user()->name ?: 'Driver';
-        $adminMessage = match ($startTiming) {
-            'early' => "{$driverName} started the trip early, 10 minutes before the scheduled departure.",
-            'late' => "{$deviceLabel}: {$driverName} started trip #{$trip->id} {$lateDuration} late.",
-            default => "{$driverName} started the trip on time.",
-        };
-
-        foreach (User::where('role', 'admin')->get() as $admin) {
-            Notification::create([
-                'user_id' => $admin->id,
-                'trip_id' => $trip->id,
-                'message' => $adminMessage,
-                'is_read' => false,
+            $movement->update([
+                'actual_departure_at' => $now,
+                'departure_latitude' => $location['latitude'] ?? null,
+                'departure_longitude' => $location['longitude'] ?? null,
+                'status' => 'active',
             ]);
-        }
+            $trip->update(['status' => 'active']);
 
-        return response()->json([
-            'message' => $message,
-            'start_timing' => $startTiming,
-            'late_minutes' => $lateMinutes,
-            'trip' => $trip->fresh()->load('movements'),
-        ]);
+            $startedEarly = $now->lt($movement->scheduled_departure);
+            $startedLate = $now->gt($movement->scheduled_departure);
+            $startTiming = 'on_time';
+            $message = 'Trip started on time.';
+
+            if ($startedEarly) {
+                $startTiming = 'early';
+                $message = 'Trip started 10 minutes before the scheduled departure time.';
+            } elseif ($startedLate) {
+                $startTiming = 'late';
+                $minutes = $movement->late_minutes;
+                $duration = $minutes > 0 ? "{$minutes} minute(s)" : 'less than 1 minute';
+                $message = "Trip started {$duration} late.";
+            }
+
+            $lateMinutes = $movement->late_minutes;
+            TripActivity::record($trip, $request->user(), 'outbound_started', $now, $lateMinutes);
+            $lateDuration = $lateMinutes > 0 ? "{$lateMinutes} minute(s)" : 'less than 1 minute';
+            $deviceLabel = app(TripDepartureMonitor::class)->deviceLabel($trip);
+            $driverName = $request->user()->name ?: 'Driver';
+            $adminMessage = match ($startTiming) {
+                'early' => "{$driverName} started the trip early, 10 minutes before the scheduled departure.",
+                'late' => "{$deviceLabel}: {$driverName} started trip #{$trip->id} {$lateDuration} late.",
+                default => "{$driverName} started the trip on time.",
+            };
+
+            foreach (User::where('role', 'admin')->get() as $admin) {
+                Notification::create([
+                    'user_id' => $admin->id,
+                    'trip_id' => $trip->id,
+                    'message' => $adminMessage,
+                    'is_read' => false,
+                ]);
+            }
+
+            return response()->json([
+                'message' => $message,
+                'start_timing' => $startTiming,
+                'late_minutes' => $lateMinutes,
+                'trip' => $trip->fresh()->load('movements'),
+            ]);
         });
     }
 
     public function end(Request $request, Trip $trip)
     {
-        $this->authorizeDriverTrip($request, $trip);
-        $location = $this->validateLocation($request);
-        $this->ensureMovements($trip);
-        $movement = $trip->movements()->where('movement_no', 1)->firstOrFail();
+        return DB::transaction(function () use ($request, $trip) {
+            $trip = Trip::lockForUpdate()->findOrFail($trip->id);
+            $this->authorizeDriverTrip($request, $trip);
+            $location = $this->validateLocation($request);
+            $this->ensureMovements($trip);
+            $movement = $trip->movements()->where('movement_no', 1)->firstOrFail();
 
-        abort_unless($movement->status === 'active', 422, 'The outbound trip is not active.');
+            abort_unless($movement->status === 'active', 422, 'The outbound trip is not active.');
 
-        $movement->update([
-            'actual_arrival_at' => now(),
-            'arrival_latitude' => $location['latitude'] ?? null,
-            'arrival_longitude' => $location['longitude'] ?? null,
-            'status' => 'completed',
-        ]);
+            $movement->update([
+                'actual_arrival_at' => now(),
+                'arrival_latitude' => $location['latitude'] ?? null,
+                'arrival_longitude' => $location['longitude'] ?? null,
+                'status' => 'completed',
+            ]);
 
-        return response()->json(['message' => 'Outbound trip ended', 'trip' => $trip->fresh()->load('movements')]);
+            TripActivity::record($trip, $request->user(), 'outbound_arrived', $movement->actual_arrival_at);
+
+            return response()->json(['message' => 'Outbound trip ended', 'trip' => $trip->fresh()->load('movements')]);
+        });
     }
 
     public function startReturn(Request $request, Trip $trip)
     {
-        $this->authorizeDriverTrip($request, $trip);
-        $location = $this->validateLocation($request);
-        $this->ensureMovements($trip);
-        $outbound = $trip->movements()->where('movement_no', 1)->firstOrFail();
-        $return = $trip->movements()->where('movement_no', 2)->firstOrFail();
+        return DB::transaction(function () use ($request, $trip) {
+            $trip = Trip::lockForUpdate()->findOrFail($trip->id);
+            $this->authorizeDriverTrip($request, $trip);
+            $location = $this->validateLocation($request);
+            $this->ensureMovements($trip);
+            $outbound = $trip->movements()->where('movement_no', 1)->firstOrFail();
+            $return = $trip->movements()->where('movement_no', 2)->firstOrFail();
 
-        abort_unless($outbound->status === 'completed' && $return->status === 'scheduled', 422, 'The return trip is not ready to start.');
+            abort_unless($outbound->status === 'completed' && $return->status === 'scheduled', 422, 'The return trip is not ready to start.');
 
-        $return->update([
-            'actual_departure_at' => now(),
-            'departure_latitude' => $location['latitude'] ?? null,
-            'departure_longitude' => $location['longitude'] ?? null,
-            'status' => 'active',
-        ]);
+            $return->update([
+                'actual_departure_at' => now(),
+                'departure_latitude' => $location['latitude'] ?? null,
+                'departure_longitude' => $location['longitude'] ?? null,
+                'status' => 'active',
+            ]);
 
-        return response()->json(['message' => 'Return trip started', 'trip' => $trip->fresh()->load('movements')]);
+            TripActivity::record($trip, $request->user(), 'return_started', $return->actual_departure_at, $return->late_minutes);
+
+            return response()->json(['message' => 'Return trip started', 'trip' => $trip->fresh()->load('movements')]);
+        });
     }
 
     public function endReturn(Request $request, Trip $trip)
     {
-        $this->authorizeDriverTrip($request, $trip);
-        $location = $this->validateLocation($request);
-        $this->ensureMovements($trip);
-        $return = $trip->movements()->where('movement_no', 2)->firstOrFail();
+        return DB::transaction(function () use ($request, $trip) {
+            $trip = Trip::lockForUpdate()->findOrFail($trip->id);
+            $this->authorizeDriverTrip($request, $trip);
+            $location = $this->validateLocation($request);
+            $this->ensureMovements($trip);
+            $return = $trip->movements()->where('movement_no', 2)->firstOrFail();
 
-        abort_unless($return->status === 'active', 422, 'The return trip is not active.');
+            abort_unless($return->status === 'active', 422, 'The return trip is not active.');
 
-        $return->update([
-            'actual_arrival_at' => now(),
-            'arrival_latitude' => $location['latitude'] ?? null,
-            'arrival_longitude' => $location['longitude'] ?? null,
-            'status' => 'completed',
-        ]);
-        $trip->update(['status' => 'completed']);
+            $return->update([
+                'actual_arrival_at' => now(),
+                'arrival_latitude' => $location['latitude'] ?? null,
+                'arrival_longitude' => $location['longitude'] ?? null,
+                'status' => 'completed',
+            ]);
+            $trip->update(['status' => 'completed']);
 
-        return response()->json(['message' => 'Return trip ended', 'trip' => $trip->fresh()->load('movements')]);
+            TripActivity::record($trip, $request->user(), 'completed', $return->actual_arrival_at);
+
+            return response()->json(['message' => 'Return trip ended', 'trip' => $trip->fresh()->load('movements')]);
+        });
     }
 
     public function updateDestinationPin(Request $request, Trip $trip)
@@ -589,35 +690,50 @@ class TripController extends Controller
         ]);
     }
 
-    public function approve(Trip $trip)
+    public function approve(Request $request, Trip $trip)
     {
-        $this->ensureMovements($trip);
-        $trip->update(['status' => 'approved']);
-        $trip->refresh();
-        $trip->effective_status = $trip->effective_status;
+        return DB::transaction(function () use ($request, $trip) {
+            User::whereKey($trip->driver_id)->lockForUpdate()->firstOrFail();
+            $trip->refresh();
+            abort_unless($trip->status === 'pending', 422, 'Only pending trips can be approved.');
+            $this->ensureDriverScheduleAvailable($trip->driver_id, $trip->scheduled_departure, $trip->return_scheduled_departure, $trip->scheduled_end_at, $trip->id);
+            $this->ensureMovements($trip);
+            $trip->update(['status' => 'approved']);
+            $trip->refresh();
+            $trip->effective_status = $trip->effective_status;
 
-        Notification::create([
-            'user_id' => $trip->driver_id,
-            'trip_id' => $trip->id,
-            'message' => "Your trip request to {$trip->destination} has been approved",
-            'is_read' => false,
-        ]);
+            TripActivity::record($trip, $request->user(), 'approved');
 
-        return response()->json(['message' => 'Trip approved', 'trip' => $trip]);
+            Notification::create([
+                'user_id' => $trip->driver_id,
+                'trip_id' => $trip->id,
+                'message' => "Your trip request to {$trip->destination} has been approved",
+                'is_read' => false,
+            ]);
+
+            return response()->json(['message' => 'Trip approved', 'trip' => $trip]);
+        });
     }
 
-    public function deny(Trip $trip)
+    public function deny(Request $request, Trip $trip)
     {
-        $trip->update(['status' => 'denied']);
+        return DB::transaction(function () use ($request, $trip) {
+            User::whereKey($trip->driver_id)->lockForUpdate()->firstOrFail();
+            $trip->refresh();
+            abort_unless($trip->status === 'pending', 422, 'Only pending trips can be denied.');
+            $trip->update(['status' => 'denied']);
 
-        Notification::create([
-            'user_id' => $trip->driver_id,
-            'trip_id' => $trip->id,
-            'message' => "Your trip request to {$trip->destination} has been denied",
-            'is_read' => false,
-        ]);
+            TripActivity::record($trip, $request->user(), 'denied');
 
-        return response()->json(['message' => 'Trip denied', 'trip' => $trip]);
+            Notification::create([
+                'user_id' => $trip->driver_id,
+                'trip_id' => $trip->id,
+                'message' => "Your trip request to {$trip->destination} has been denied",
+                'is_read' => false,
+            ]);
+
+            return response()->json(['message' => 'Trip denied', 'trip' => $trip]);
+        });
     }
 
     public function print(Request $request, Trip $trip)

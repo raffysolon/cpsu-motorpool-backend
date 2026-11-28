@@ -35,6 +35,10 @@ return [
         ],
     ],
 
+    'osrm' => [
+        'url' => env('OSRM_BASE_URL'),
+    ],
+
     'gateway' => [
         'api_key' => env('GATEWAY_API_KEY'),
     ],

@@ -21,6 +21,7 @@ class SavedDestinationTest extends TestCase
         $details = ['origin' => 'Office', 'purpose' => 'Training', 'scheduled_departure' => now()->addDay()->toDateString()];
         $this->postJson('/api/trips', $details + ['destination' => 'cpsu san carlos'])->assertCreated();
         $this->assertDatabaseHas('trips', ['destination' => 'CPSU San Carlos', 'destination_latitude' => 10.5, 'destination_longitude' => 123.4]);
+        Sanctum::actingAs(User::factory()->create(['role' => 'driver']));
         $this->postJson('/api/trips', $details + ['destination' => 'Custom place'])->assertCreated();
         $this->assertDatabaseHas('trips', ['destination' => 'Custom place', 'destination_latitude' => null, 'destination_longitude' => null]);
     }

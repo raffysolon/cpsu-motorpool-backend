@@ -15,6 +15,7 @@ class Trip extends Model
         'destination_longitude',
         'purpose',
         'scheduled_departure',
+        'scheduled_end_at',
         'return_scheduled_departure',
         'status',
         'source',
