@@ -11,6 +11,8 @@ class Trip extends Model
         'vehicle_id',
         'origin',
         'destination',
+        'destination_latitude',
+        'destination_longitude',
         'purpose',
         'scheduled_departure',
         'return_scheduled_departure',

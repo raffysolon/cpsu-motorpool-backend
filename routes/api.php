@@ -198,7 +198,6 @@ Route::get('/gps/vehicles/{vehicle_id}/history', [GpsLocationController::class, 
     // Trip Management - Admin Actions
     Route::get('/trips', [TripController::class, 'index']); // View all trips
     Route::post('/trips/admin-create', [TripController::class, 'adminStore']); // Create trip as admin
-    Route::get('/saved-destinations', [\App\Http\Controllers\SavedDestinationController::class, 'index']);
     Route::post('/saved-destinations', [\App\Http\Controllers\SavedDestinationController::class, 'store']);
     Route::put('/saved-destinations/{id}', [\App\Http\Controllers\SavedDestinationController::class, 'update'])->whereNumber('id');
     Route::get('/available-drivers', [TripController::class, 'availableDrivers']);
@@ -212,6 +211,7 @@ Route::get('/gps/vehicles/{vehicle_id}/history', [GpsLocationController::class, 
 // AUTHENTICATED ROUTES (Admin + Driver with rate limiting)
 // ============================================
 Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
+    Route::get('/saved-destinations', [\App\Http\Controllers\SavedDestinationController::class, 'index']);
     // My Assignment (Driver/Coordinator can view their own)
     Route::get('/my-assignment', [MyAssignmentController::class, 'show']);
 

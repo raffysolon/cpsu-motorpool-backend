@@ -214,11 +214,21 @@ class TripController extends Controller
 
         $vehicleId = $assignment?->vehicle_id;
 
+        $destination = trim($validated['destination']);
+        $pin = DB::table('saved_destinations')->where('name', $destination)->first();
+        if (!$pin) {
+            $matches = DB::table('saved_destinations')
+                ->whereRaw('LOWER(name) = LOWER(?)', [$destination])->limit(2)->get();
+            $pin = $matches->count() === 1 ? $matches->first() : null;
+        }
+
         $trip = Trip::create([
             'driver_id' => $driver->id,
             'vehicle_id' => $vehicleId,
             'origin' => $validated['origin'],
-            'destination' => $validated['destination'],
+            'destination' => $pin->name ?? $destination,
+            'destination_latitude' => $pin->latitude ?? null,
+            'destination_longitude' => $pin->longitude ?? null,
             'purpose' => $validated['purpose'],
             'scheduled_departure' => $validated['scheduled_departure'],
             'return_scheduled_departure' => $validated['return_scheduled_departure'] ?? null,
