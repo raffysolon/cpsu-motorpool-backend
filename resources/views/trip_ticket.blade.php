@@ -25,7 +25,7 @@
 
         @page {
             size: 8.5in 13in;
-            margin: 8mm 10mm 15mm 10mm;
+            margin: 8mm 12mm 15mm 12mm;
         }
 
         * {
