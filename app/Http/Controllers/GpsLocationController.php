@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Device;
 use App\Models\GpsLocation;
 use App\Models\Trip;
+use App\Services\GpsDistance;
 use Carbon\Carbon;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
@@ -330,8 +331,8 @@ class GpsLocationController extends Controller
             return response()->json(['status' => 'routing_unconfigured']);
         }
         $coordinates = "{$gps->longitude},{$gps->latitude};{$trip->destination_longitude},{$trip->destination_latitude}";
-        $key = 'trip-eta:' . hash('sha256', "$router|$coordinates");
-        $duration = Cache::remember($key, 60, function () use ($router, $coordinates) {
+        $key = 'trip-eta-route:' . hash('sha256', "$router|$coordinates");
+        $route = Cache::remember($key, 60, function () use ($router, $coordinates) {
             try {
                 $response = Http::acceptJson()
                     ->connectTimeout(3)->timeout(6)->withoutRedirecting()
@@ -340,7 +341,11 @@ class GpsLocationController extends Controller
                 if ($response->successful() && $response->json('code') === 'Ok'
                     && is_numeric($seconds) && is_finite((float) $seconds) && $seconds >= 0
                 ) {
-                    return (int) ceil($seconds);
+                    $meters = $response->json('routes.0.distance');
+                    return [
+                        'seconds' => (int) ceil($seconds),
+                        'meters' => is_numeric($meters) && is_finite((float) $meters) && $meters >= 0 ? (float) $meters : null,
+                    ];
                 }
             } catch (ConnectionException) {
                 return false;
@@ -348,17 +353,39 @@ class GpsLocationController extends Controller
 
             return false;
         });
-        if ($duration === false) {
+        if ($route === false) {
             return response()->json(['status' => 'routing_unavailable']);
         }
 
+        $speed = $route['meters'] !== null ? $this->recentSpeedMetersPerSecond($gps) : null;
+        $duration = $speed === null ? $route['seconds'] : (int) ceil($route['meters'] / $speed);
+
         return response()->json([
             'status' => 'available',
+            'speed_kph' => $speed === null ? null : round($speed * 3.6, 1),
             'arrival_at' => $recordedAt->copy()->addSeconds($duration)->toISOString(),
             'gps_recorded_at' => $recordedAt->toISOString(),
         ]);
     }
 
+
+    private function recentSpeedMetersPerSecond(GpsLocation $latest): ?float
+    {
+        $recordedAt = $latest->recorded_at;
+        $previous = GpsLocation::query()
+            ->where('vehicle_id', $latest->vehicle_id)
+            ->where('device_registry_id', $latest->device_registry_id)
+            ->whereBetween('recorded_at', [$recordedAt->copy()->subMinute(), $recordedAt->copy()->subSeconds(15)])
+            ->orderBy('recorded_at')->orderBy('id')->first();
+        if (!$previous) {
+            return null;
+        }
+
+        $meters = GpsDistance::meters($previous->latitude, $previous->longitude, $latest->latitude, $latest->longitude);
+        $speed = $meters / $previous->recorded_at->diffInSeconds($recordedAt);
+        // Stationary readings and implausible GPS jumps use the router estimate.
+        return $speed >= 5 / 3.6 && $speed <= 120 / 3.6 ? $speed : null;
+    }
 
     public function recordedRoute(Trip $trip)
     {

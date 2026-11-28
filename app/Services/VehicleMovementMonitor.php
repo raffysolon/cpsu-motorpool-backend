@@ -175,7 +175,7 @@ class VehicleMovementMonitor
                     $stationaryStartLatitude = null;
                     $stationaryStartLongitude = null;
                 } else {
-                    $segmentDistance = $this->distanceMeters(
+                    $segmentDistance = GpsDistance::meters(
                         $previousLatitude,
                         $previousLongitude,
                         $latitude,
@@ -202,7 +202,7 @@ class VehicleMovementMonitor
                             $movementContextTripId = $currentTripId;
                         }
 
-                        $netDisplacement = $this->distanceMeters(
+                        $netDisplacement = GpsDistance::meters(
                             (float) $movementStartLatitude,
                             (float) $movementStartLongitude,
                             $latitude,
@@ -431,7 +431,7 @@ class VehicleMovementMonitor
             $stationaryStartLongitude = $previousLongitude;
         }
 
-        $stationaryDisplacement = $this->distanceMeters(
+        $stationaryDisplacement = GpsDistance::meters(
             (float) $stationaryStartLatitude,
             (float) $stationaryStartLongitude,
             $latitude,
@@ -498,28 +498,11 @@ class VehicleMovementMonitor
             return false;
         }
 
-        return $this->distanceMeters(
+        return GpsDistance::meters(
             $latitude,
             $longitude,
             $campus[0],
             $campus[1]
         ) <= config('tracking.movement.campus_radius_meters');
-    }
-
-    private function distanceMeters(
-        float $latitude1,
-        float $longitude1,
-        float $latitude2,
-        float $longitude2
-    ): float {
-        $earthRadiusMeters = 6371000;
-        $latitudeDelta = deg2rad($latitude2 - $latitude1);
-        $longitudeDelta = deg2rad($longitude2 - $longitude1);
-        $a = sin($latitudeDelta / 2) ** 2
-            + cos(deg2rad($latitude1))
-            * cos(deg2rad($latitude2))
-            * sin($longitudeDelta / 2) ** 2;
-
-        return $earthRadiusMeters * 2 * atan2(sqrt($a), sqrt(1 - $a));
     }
 }

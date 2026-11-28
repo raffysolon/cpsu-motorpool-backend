@@ -22,7 +22,7 @@ class TripEtaTest extends TestCase
         config(['services.osrm.url' => 'https://routing.example.test']);
         Http::fake(['routing.example.test/*' => Http::response([
             'code' => 'Ok',
-            'routes' => [['duration' => 900]],
+            'routes' => [['duration' => 900, 'distance' => 6000]],
         ])]);
 
         $driver = User::factory()->create(['role' => 'driver']);
@@ -60,6 +60,13 @@ class TripEtaTest extends TestCase
         $this->getJson($url)->assertOk()->assertJsonPath('status', 'available');
         Http::assertSentCount(1);
         Http::assertSent(fn ($request) => str_contains($request->url(), '/123.2,10.1;123.3,10.2'));
+
+        GpsLocation::create([
+            'device_registry_id' => $device->id, 'vehicle_id' => $vehicle->id,
+            'recorded_at' => '2026-11-28 00:59:20', 'latitude' => 10.0973, 'longitude' => 123.2,
+        ]);
+        $this->getJson($url)->assertOk()->assertJsonPath('speed_kph', 36)
+            ->assertJsonPath('arrival_at', '2026-11-28T01:09:50.000000Z');
 
         $this->travel(1)->minutes();
         $this->getJson($url)->assertOk()->assertJsonPath('status', 'gps_stale');
