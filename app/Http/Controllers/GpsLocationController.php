@@ -286,6 +286,45 @@ class GpsLocationController extends Controller
             : $query->paginate(50));
     }
 
+    public function recordedRoute(Trip $trip)
+    {
+        abort_unless($trip->status === 'completed', 404);
+
+        if ($trip->vehicle_id === null) {
+            return response()->json(['legs' => [], 'reason' => 'vehicle_missing']);
+        }
+
+        $legs = [];
+        foreach ($trip->movements as $movement) {
+            $departure = $movement->actual_departure_at;
+            $arrival = $movement->actual_arrival_at;
+            if (!$departure || !$arrival || $arrival->lt($departure)) {
+                continue;
+            }
+
+            $locations = GpsLocation::query()
+                ->where('vehicle_id', $trip->vehicle_id)
+                ->whereBetween('recorded_at', [$departure->copy()->utc(), $arrival->copy()->utc()])
+                ->orderBy('recorded_at')
+                ->orderBy('id')
+                ->get(['latitude', 'longitude', 'recorded_at']);
+
+            $legs[] = [
+                'movement_no' => $movement->movement_no,
+                'points' => $locations->map(fn (GpsLocation $location) => [
+                    'latitude' => $location->latitude,
+                    'longitude' => $location->longitude,
+                    'recorded_at' => $location->recorded_at->toISOString(),
+                ]),
+            ];
+        }
+
+        return response()->json([
+            'legs' => $legs,
+            'reason' => $legs === [] ? 'actual_times_missing' : null,
+        ]);
+    }
+
     public function history(int $vehicle_id)
     {
         return response()->json(

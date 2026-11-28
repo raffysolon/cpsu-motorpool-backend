@@ -183,6 +183,7 @@ Route::middleware(['auth:sanctum', 'role:admin', 'throttle:api'])->group(functio
     Route::delete('/devices/{device_id}', [DeviceController::class, 'destroy']);
     // GPS Tracking (Admin Only)
     Route::get('/gps/sync-logs', [GpsLocationController::class, 'syncLogs']);
+    Route::get('/trips/{trip}/recorded-route', [GpsLocationController::class, 'recordedRoute'])->whereNumber('trip');
 Route::get('/gps/vehicles/{vehicle_id}/latest', [GpsLocationController::class, 'latest'])
     ->whereNumber('vehicle_id');
 
