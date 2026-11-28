@@ -107,6 +107,34 @@ class TripDepartureMonitorTest extends TestCase
             ->assertJsonPath('data.0.device.device_id', 'Device 2');
     }
 
+    public function test_sync_summary_uses_latest_upload_and_details_follow_reassigned_tracker(): void
+    {
+        [$admin, , $vehicle, $device] = $this->fleet();
+        $previous = $vehicle->replicate();
+        $previous->plate_no = 'OLD-SYNC';
+        $previous->save();
+
+        $first = GpsLocation::create([
+            'device_registry_id' => $device->id, 'vehicle_id' => $previous->id,
+            'latitude' => 10.5, 'longitude' => 123.4,
+            'recorded_at' => '2026-11-18 02:00:00', 'received_at' => '2026-11-18 02:01:00',
+        ]);
+        $recovered = GpsLocation::create([
+            'device_registry_id' => $device->id, 'vehicle_id' => $previous->id,
+            'latitude' => 10.6, 'longitude' => 123.4,
+            'recorded_at' => '2026-11-18 01:00:00', 'received_at' => '2026-11-18 03:00:00',
+        ]);
+
+        Sanctum::actingAs($admin);
+        $this->getJson('/api/gps/sync-logs?summary=1')->assertOk()
+            ->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $recovered->id);
+        $this->getJson("/api/gps/sync-logs?vehicle_id={$vehicle->id}")->assertOk()
+            ->assertJsonPath('total', 2)->assertJsonPath('data.1.id', $first->id)
+            ->assertJsonPath('data.0.vehicle_id', $previous->id);
+        $this->getJson("/api/gps/sync-logs?vehicle_id={$previous->id}")->assertOk()
+            ->assertJsonPath('total', 0);
+    }
+
     public function test_pending_denied_and_completed_trips_never_raise_overdue_alerts(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-11-18 09:20:00', 'Asia/Manila'));

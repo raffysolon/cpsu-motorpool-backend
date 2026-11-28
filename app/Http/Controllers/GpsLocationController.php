@@ -256,14 +256,34 @@ class GpsLocationController extends Controller
         );
     }
 
-    public function syncLogs()
+    public function syncLogs(Request $request)
     {
-        return response()->json(
-            GpsLocation::with('device:id,device_id')
-                ->orderByDesc('recorded_at')
-                ->orderByDesc('id')
-                ->paginate(50)
-        );
+        $filters = $request->validate([
+            'summary' => 'sometimes|boolean',
+            'vehicle_id' => 'sometimes|integer|min:1',
+            'device_registry_id' => 'sometimes|integer|min:1',
+        ]);
+        $query = GpsLocation::with('device:id,device_id');
+        if (isset($filters['vehicle_id'])) {
+            $vehicleId = $filters['vehicle_id'];
+            $query->where(function ($scope) use ($vehicleId) {
+                $scope->whereHas('device', fn ($device) => $device->where('vehicle_id', $vehicleId))
+                    ->orWhere(fn ($legacy) => $legacy->whereNull('device_registry_id')->where('vehicle_id', $vehicleId));
+            });
+        }
+        if (isset($filters['device_registry_id'])) {
+            $query->where('device_registry_id', $filters['device_registry_id']);
+        }
+        if ($request->boolean('summary')) {
+            $ranked = DB::table('gps_locations')->select('id')->selectRaw(
+                'ROW_NUMBER() OVER (PARTITION BY device_registry_id, CASE WHEN device_registry_id IS NULL THEN vehicle_id END ORDER BY COALESCE(received_at, created_at, recorded_at) DESC, id DESC) AS upload_rank'
+            );
+            $query->whereIn('id', DB::query()->fromSub($ranked, 'uploads')->select('id')->where('upload_rank', 1));
+        }
+        $query->orderByRaw('COALESCE(received_at, created_at, recorded_at) DESC')->orderByDesc('id');
+        return response()->json($request->boolean('summary')
+            ? ['data' => $query->get()]
+            : $query->paginate(50));
     }
 
     public function history(int $vehicle_id)

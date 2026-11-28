@@ -15,6 +15,31 @@ class TripStatusFlowTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_admin_can_set_optional_destination_pin_on_a_pending_trip(): void
+    {
+        $driver = User::factory()->create(['role' => 'driver']);
+        $trip = Trip::create([
+            'driver_id' => $driver->id,
+            'origin' => 'Office',
+            'destination' => 'City Hall',
+            'purpose' => 'Official Business',
+            'scheduled_departure' => now()->addDay(),
+            'status' => 'pending',
+        ]);
+        $url = "/api/trips/{$trip->id}/destination-pin";
+        $pin = ['latitude' => 10.5, 'longitude' => 123.4];
+        Sanctum::actingAs($driver);
+        $this->putJson($url, $pin)->assertForbidden();
+        Sanctum::actingAs(User::factory()->create(['role' => 'admin']));
+        $this->putJson($url, ['latitude' => 91])->assertUnprocessable();
+        $this->putJson($url, $pin)->assertOk();
+        $stored = $trip->fresh();
+        $this->assertSame(10.5, (float) $stored->destination_latitude);
+        $this->assertSame(123.4, (float) $stored->destination_longitude);
+        $this->assertSame('City Hall', $stored->destination);
+        $this->assertSame('pending', $stored->status);
+    }
+
     public function test_driver_can_fetch_only_pending_trips(): void
     {
         $driver = User::factory()->create(['role' => 'driver']);

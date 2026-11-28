@@ -198,8 +198,12 @@ Route::get('/gps/vehicles/{vehicle_id}/history', [GpsLocationController::class, 
     // Trip Management - Admin Actions
     Route::get('/trips', [TripController::class, 'index']); // View all trips
     Route::post('/trips/admin-create', [TripController::class, 'adminStore']); // Create trip as admin
+    Route::get('/saved-destinations', [\App\Http\Controllers\SavedDestinationController::class, 'index']);
+    Route::post('/saved-destinations', [\App\Http\Controllers\SavedDestinationController::class, 'store']);
+    Route::put('/saved-destinations/{id}', [\App\Http\Controllers\SavedDestinationController::class, 'update'])->whereNumber('id');
     Route::get('/available-drivers', [TripController::class, 'availableDrivers']);
     Route::get('/available-vehicles', [TripController::class, 'availableVehicles']);
+    Route::put('/trips/{trip}/destination-pin', [TripController::class, 'updateDestinationPin']);
     Route::put('/trips/{trip}/approve', [TripController::class, 'approve']);
     Route::put('/trips/{trip}/deny', [TripController::class, 'deny']);
 });

@@ -562,6 +562,23 @@ class TripController extends Controller
         return response()->json(['message' => 'Return trip ended', 'trip' => $trip->fresh()->load('movements')]);
     }
 
+    public function updateDestinationPin(Request $request, Trip $trip)
+    {
+        $pin = $request->validate([
+            'latitude' => ['required', 'numeric', 'between:-90,90'],
+            'longitude' => ['required', 'numeric', 'between:-180,180'],
+        ]);
+
+        $trip->destination_latitude = $pin['latitude'];
+        $trip->destination_longitude = $pin['longitude'];
+        $trip->save();
+
+        return response()->json([
+            'destination_latitude' => $trip->destination_latitude,
+            'destination_longitude' => $trip->destination_longitude,
+        ]);
+    }
+
     public function approve(Trip $trip)
     {
         $this->ensureMovements($trip);
